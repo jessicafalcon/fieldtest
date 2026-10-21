@@ -1,0 +1,66 @@
+[project]
+name = "fieldtest"
+version = "0.0.0"
+description = "Use-case readiness reports for LLM document workflows."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+# Phase 0A ships tooling only. Each runtime dependency lands with the phase that needs it,
+# with a one-line justification in its commit (brief §11).
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-socket>=0.8.1",
+    "ruff>=0.16.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+# The one uv pin: CI's setup-uv reads it. Keep in sync with the uv-lock hook rev in
+# .pre-commit-config.yaml.
+required-version = "==0.12.5"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src", "scripts", ".claude/hooks"]
+# The hooks and scripts are stdlib scripts, not a package; tests import them by module name.
+pythonpath = [".claude/hooks", "scripts"]
+# Tests never touch the network (brief §3.9): any socket other than a Unix one fails the
+# test that opens it.
+addopts = ["--doctest-modules", "--disable-socket", "--allow-unix-socket", "-p", "no:cacheprovider"]
+strict = true
+
+[tool.ruff]
+line-length = 100
+# Accepted decision records are never rewritten, and ruff would format their code blocks.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF", "PT", "PTH", "DTZ", "S"]
+
+[tool.ruff.lint.pycodestyle]
+# The formatter targets 100 but can't split string literals or comments.
+max-line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, and drive git and the hook scripts through subprocess on fixed arguments.
+"tests/**" = ["S101", "S603", "S607"]
+# The guards and hooks run git, gh, gitleaks and ruff by name with fixed arguments.
+"scripts/**" = ["S603", "S607"]
+".claude/hooks/**" = ["S603", "S607"]
+
+[tool.mypy]
+# Lenient by design (brief §6): typed public signatures, checked bodies, no strict mode.
+python_version = "3.12"
+files = ["src", "tests", "scripts", ".claude/hooks"]
+mypy_path = [".claude/hooks", "scripts"]
+explicit_package_bases = true
+check_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
