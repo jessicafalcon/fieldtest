@@ -27,11 +27,12 @@ def _outside_the_driver(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run every test as CI does: without the driver's flag or the App's git identity.
 
     `scripts/autopilot.sh` exports the App's author and committer and a `GIT_CONFIG_*`
-    block; git lets them override a test repo's own config, so they are removed here.
+    block, and git exports `GIT_DIR`, `GIT_WORK_TREE` and `GIT_INDEX_FILE` to the hooks
+    pytest runs in; each would override a test repo's own state, so they are removed here.
     """
     for name in list(os.environ):
-        if name == "FIELDTEST_DRIVER" or name.startswith(
-            ("GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG_")
+        if name in {"FIELDTEST_DRIVER", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} or (
+            name.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG_"))
         ):
             monkeypatch.delenv(name)
 

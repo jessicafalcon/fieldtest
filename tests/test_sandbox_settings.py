@@ -4,6 +4,7 @@ secrets, and the driver always passes it (ADR 0005)."""
 from __future__ import annotations
 
 import json
+import tomllib
 from typing import Any
 
 from tests.conftest import ROOT
@@ -66,3 +67,17 @@ def test_gh_can_read_its_own_config_inside_the_sandbox() -> None:
     assert not [r for r in project["permissions"]["deny"] if ".autopilot" in r]
     assert not [p for p in settings()["sandbox"]["filesystem"]["denyRead"] if ".autopilot" in p]
     assert not [r for r in project["permissions"]["deny"] if r.startswith("Write(")]
+
+
+def test_pytest_skips_every_repo_path_the_sandbox_hides() -> None:
+    # pytest stats each entry of the repo root on its way to `testpaths`; a denied entry
+    # stops collection with EPERM inside the sandbox unless it is ignored.
+    hidden = {
+        entry.removeprefix("{ROOT}/")
+        for entry in settings()["sandbox"]["filesystem"]["denyRead"]
+        if entry.startswith("{ROOT}/")
+    }
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+    assert hidden
+    assert {f"--ignore={path}" for path in hidden} <= set(addopts)

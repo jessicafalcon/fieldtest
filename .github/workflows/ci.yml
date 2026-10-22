@@ -102,7 +102,10 @@ jobs:
           fi
           python3 "$guard" --range "$BASE_SHA..$HEAD_SHA"
 
+      # Runs even when the guard fails: a guardrail PR's guard step stays red until the
+      # owner approves, and its dependencies still need auditing meanwhile.
       - name: Audit the locked dependencies for known vulnerabilities
+        if: ${{ !cancelled() }}
         run: |
           uv export --frozen --all-groups --no-emit-project --format requirements.txt \
             > "$RUNNER_TEMP/requirements.txt"
