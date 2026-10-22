@@ -21,8 +21,13 @@ repos:
       - id: check-toml
       - id: check-yaml
       - id: detect-private-key
+      # The fixers also declare the pre-push stage, where they open every pushed file for
+      # writing; the loop's sandbox denies writes to `.claude/skills/` and `.claude/hooks/`,
+      # so they run on commit only. CI still runs them over every file.
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: trailing-whitespace
+        stages: [pre-commit]
 
   # Keep in sync with `required-version` in pyproject.toml.
   - repo: https://github.com/astral-sh/uv-pre-commit
