@@ -32,6 +32,10 @@ def main() -> int:
     path = Path(file_path)
     if path.suffix != ".py" or not path.is_file():
         return 0
+    if os.environ.get("FIELDTEST_DRIVER") == "1":
+        # Under the loop's driver this hook would run `.venv` code outside the sandbox
+        # (ADR 0006); pre-commit formats inside the sandbox at commit instead.
+        return 0
     root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd()).resolve()
     if not path.resolve().is_relative_to(root):
         return 0  # outside the project: the scratchpad, memory

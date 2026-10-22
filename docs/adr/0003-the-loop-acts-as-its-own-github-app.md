@@ -33,7 +33,8 @@ privilege, its credentials expire within the hour, and it needs no second accoun
   the owner's latest review approves exactly its head commit. GitHub never lets a PR's
   author approve it, and the loop authors the PRs, so the loop can't satisfy this rule. A
   push after the approval moves the head and voids it. CI checks this with main's copy of
-  the guard, re-running on every review. This replaces the `human-approved` label, which
+  the guard, re-running on every review, and GitHub enforces it through `CODEOWNERS` and a
+  code-owner review in the ruleset (ADR 0006). This replaces the `human-approved` label, which
   the loop's own token could have added.
 - **Keys stay in `.env`.** The App's ID, installation ID and private key (base64) live in
   `.env` beside the model key. `scripts/loop_auth.py` mints the token and never prints it.

@@ -18,7 +18,7 @@ hooks:
       hooks:
         - type: command
           # Backup to the settings.json registration (bash_policy.py docstring).
-          command: "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash_policy.py\" --as determinism-auditor"
+          command: "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash_policy.py\" --as determinism-auditor"
           timeout: 20
 ---
 

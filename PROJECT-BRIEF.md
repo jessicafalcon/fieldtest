@@ -244,7 +244,7 @@ Each phase is small (about 1–3 part-time days), ends with something runnable, 
   - CI (`check`, `security`), Dependabot, PR template
   - Unit tests for every hook script (pipe sample JSON in, assert exit code and output)
 <!-- guarded:start -->
-- **Acceptance:** `make check` is green. `/hooks` lists the hooks. A test edit to a `cache/llm/` file is blocked. A commit containing a fake API key is blocked. A commit staging a `.private/` file is blocked. `scripts/preflight.py --all` passes for Phase 0A. The first PR, opened by the loop's App, is merged by `merge-gate` after the owner's approving review of its head commit, and the loop takes Phase 0A through `phase-review` end to end.
+- **Acceptance:** `make check` is green. `/hooks` lists the hooks. A test edit to a `cache/llm/` file is blocked. A commit containing a fake API key is blocked. A commit staging a `.private/` file is blocked. `scripts/preflight.py` passes for Phase 0A. The first PR, opened by the loop's App, is merged by `merge-gate` after the owner's approving review of its head commit, and the loop takes Phase 0A through `phase-review` end to end.
 <!-- guarded:end -->
 
 ### Phase 0B — Decisions & data spike
@@ -378,7 +378,7 @@ merge-gate: CI + `guard.py --pr` + reviews → squash-merges the verified head
 The arbiter replaces the human's plan approval; acceptance is by evidence (each criterion PASS with a test or command); the merge gate replaces the human's merge. `scripts/autopilot.sh` runs one fresh headless session per iteration. When the loop needs you it waits (for an approval, or for an issue to be closed) and then continues.
 
 <!-- guarded:start -->
-**Escalation.** The loop opens a `needs-human` issue with exact instructions, only for: a human-only action (accounts, keys, consoles, money); a decision the arbiter's policy reserves (a phase goal or acceptance criterion, §3 or §4, a licence, a split one-way door); a security incident; a spent retry budget; an infrastructure failure; or a repo state the loop didn't create. A change to a guardrail file instead requests your review on its PR: it merges only once you approve its head commit.
+**Escalation.** The loop opens a `needs-human` issue with exact instructions, only for: a human-only action (accounts, keys, consoles, money); a decision the arbiter's policy reserves (a phase goal or acceptance criterion, §3 or §4, a licence, a split one-way door); a guardrail it needs changed (it can't write guardrails: it proposes the patch, and you apply it from an interactive session); a security incident; a spent retry budget; an infrastructure failure; or a repo state the loop didn't create. A PR that changes a guardrail requests your review: it merges only once you approve its head commit, which GitHub enforces through `CODEOWNERS`.
 
 **Identity (ADR 0003).** The loop acts as its own GitHub App, never as you. The App can push branches, open and merge PRs, and comment, but it has no administration rights (settings, rulesets, visibility), and GitHub never lets a PR's author approve it. So your approval of a guardrail PR is a boundary the loop can't cross. The App's keys live in `.env`; the driver mints a one-hour token from them and refreshes it.
 
@@ -484,7 +484,7 @@ and nowhere else (template: `.env.example`; `chmod 600 .env`).
 |---|---|---|---|
 | 1. Tools | Kickoff | Install uv 0.12.5, gitleaks 8.30.1, the GitHub CLI and Claude Code, with access to Opus 5.5: every session and agent runs `claude-opus-5-5`. uv installs Python 3.12. The Bash sandbox is built in on macOS; `claude doctor` reports whether it and its TLS termination work. | Your machine |
 | 2. GitHub account | Kickoff | `gh auth login` with the `repo` and `workflow` scopes. In GitHub's email settings, turn on "Keep my email addresses private" and "Block command line pushes that expose my email". Set `git config user.email` to your noreply address in this repo. | Your account; git config |
-| 3. The loop's GitHub App | Kickoff | In Developer settings, create a GitHub App: a globally unique name (e.g. `fieldtest-loop-<login>`), webhook off, installable only on your account. Permissions: Contents, Pull requests, Issues and Workflows read & write; Actions, Checks and Metadata read. **No Administration.** Generate a private key, run `base64 -i <file>.pem \| tr -d '\n'`, put the result in `FIELDTEST_APP_PRIVATE_KEY`, and delete the `.pem`. Put the App ID in `FIELDTEST_APP_ID`. | `.env` |
+| 3. The loop's GitHub App | Kickoff | In Developer settings, create a GitHub App: a globally unique name (e.g. `fieldtest-loop-<login>`), webhook off, installable only on your account. Permissions: Contents, Pull requests and Issues read & write; Actions, Checks and Metadata read. **No Administration and no Workflows**, so a loop PR can never change the CI that judges it (ADR 0006). Generate a private key, run `base64 -i <file>.pem \| tr -d '\n'`, put the result in `FIELDTEST_APP_PRIVATE_KEY`, and delete the `.pem`. Put the App ID in `FIELDTEST_APP_ID`. | `.env` |
 | 4. Publish | Kickoff, after 1–3 | `scripts/setup_github.sh <owner>/fieldtest`. Then install the App on that repository only, and put the installation ID (the number at the end of its settings URL) in `FIELDTEST_APP_INSTALLATION_ID`. Then run `uv run python scripts/loop_auth.py identity > .github/loop-identity.json`. | GitHub; `.env`; the identity file |
 | 5. Mistral | Phase 0B | Create a Mistral account, verify your phone, pick the free tier, and turn off training on API data (Admin → Privacy). Create a key for fieldtest and put it in `MISTRAL_API_KEY`. The loop can't see the console, so it will ask in an issue for the Limits page values. | `.env` |
 | 6. Local model | Phase 3b | Install Ollama, then pull the model tag the Phase 3b plan names. The loop asks for it, sized to your RAM. | Your machine |
@@ -495,7 +495,9 @@ and nowhere else (template: `.env.example`; `chmod 600 .env`).
 issue, then close it. The driver waits up to `FIELDTEST_AUTOPILOT_WAIT_HOURS` (default 24)
 and then resumes on its own.
 
-**Optional hardening.** Run the driver as a separate macOS user (or in a container) that
-holds only this repository and its `.env`. A session then can't reach your own GitHub login
-on the machine, even by mistake (ADR 0003). With API billing, `FIELDTEST_AUTOPILOT_BUDGET_USD`
+**Before Phase 0B: a separate macOS user for the loop** (ADR 0006). Run the driver as a
+user that holds only its own clone of this repository, its `.env` and its own `gh` and
+Claude logins. The sandbox already denies the loop your files and writes to anything that
+runs outside it, but your own commands still use the same `.venv`, git hooks and caches as
+the loop. A separate user removes that shared ground before the Mistral key arrives. With API billing, `FIELDTEST_AUTOPILOT_BUDGET_USD`
 caps each iteration's spend.

@@ -43,6 +43,7 @@ addopts = [
     "no:cacheprovider",
     "--ignore=.env",
     "--ignore=.private",
+    "--ignore-glob=.env.*",
 ]
 strict = true
 

@@ -132,6 +132,7 @@ until the issue is closed, then resumes. Only for:
 |---|---|
 | `human-action` | An account, credential, console setting, payment or phone check (the brief's "Manual step (human)") |
 | `decision` | The arbiter's policy reserves it: a phase goal or acceptance criterion, the §3 principles or §4 contract, money, a licence, a split one-way door; a major runtime dependency bump |
+| `guardrail` | The work needs a guardrail changed: the issue carries the patch for the owner to apply |
 | `security` | A secret or private content in a pushed commit, or a security-reviewer blocker the branch can't fix |
 | `budget` | The retry budget is spent (3 CI fix rounds, 2 re-reviews, 2 merge-gate refusals) |
 | `infrastructure` | GitHub, CI or a provider fails beyond one rerun |
@@ -144,11 +145,12 @@ requests the owner's review (below).
 ## Guardrails: files whose change needs the owner's approval
 
 <!-- guarded:start -->
-- **What constrains the loop:** `.gitignore`, `.claude/settings.json`,
-  `.claude/sandbox.autopilot.json`, `.claude/hooks/`, `.github/workflows/`,
-  `.github/dependabot.yml`, `.github/loop-identity.json`, `.pre-commit-config.yaml`,
-  `scripts/guard.py`, `scripts/guard_rules.py`, `scripts/autopilot.sh`,
-  `scripts/loop_auth.py`, `scripts/setup_github.sh`.
+- **What constrains the loop:** `.gitignore`, `pyproject.toml`, `Makefile`,
+  `.claude/settings.json`, `.claude/sandbox.autopilot.json`, `.claude/hooks/`,
+  `.github/CODEOWNERS`, `.github/workflows/`, `.github/dependabot.yml`,
+  `.github/loop-identity.json`, `.pre-commit-config.yaml`, `scripts/guard.py`,
+  `scripts/guard_rules.py`, `scripts/autopilot.sh`, `scripts/loop_auth.py`,
+  `scripts/preflight.py`, `scripts/render_sandbox.py`, `scripts/setup_github.sh`.
 - **What defines its authority:** every agent in `.claude/agents/`, and the skills
   `autopilot`, `phase-start`, `phase-review`, `determinism-contract` and
   `fieldtest-security`.
@@ -158,12 +160,20 @@ requests the owner's review (below).
 
 Keep in sync with `GUARDRAIL_PATHS` in `scripts/guard_rules.py` and ADR 0004.
 
-The loop may change these on a branch. CI (running **main's** guard) and the merge gate
-refuse the PR until the owner's latest review approves its exact head commit. The loop
-requests that review (`gh pr edit <n> --add-reviewer <owner>`), prints
+**Who writes them.** Under the driver, the loop can't write a guardrail: the sandbox and
+`protect_files.py` deny it, because hooks and the driver run that code outside the sandbox
+(ADR 0006). The loop proposes the change as a patch in a `guardrail` issue. The owner
+applies it from an interactive Claude Code session, outside the sandbox, and pushes it to
+the loop's branch.
+
+**Who approves them.** A PR that changes a guardrail merges only after the owner's latest
+review approves its exact head commit. CI (running **main's** guard) and the merge gate
+check it, and GitHub enforces it: every guardrail is in `.github/CODEOWNERS`, and the
+ruleset requires a code owner's review and dismisses it on a later push. The loop requests
+that review (`gh pr edit <n> --add-reviewer <owner>`), prints
 `AUTOPILOT-RESULT: awaiting-approval #<n>`, and the driver waits. The loop's App authors
 the PR, and GitHub never lets a PR's author approve it, so this is the one approval the
-loop can't give itself (ADRs 0001, 0003).
+loop can't give itself (ADRs 0001, 0003, 0006).
 <!-- guarded:end -->
 
 ## Keys
@@ -184,15 +194,20 @@ each comes from is the brief's §12 and `.env.example`.
 Under `scripts/autopilot.sh`, every shell command, and every process it starts, runs in
 Claude Code's OS-enforced sandbox (`.claude/sandbox.autopilot.json`, ADR 0005):
 
-- **Reads:** no `.env`, `.private/`, `~/.config/gh`, `~/.ssh` or keychains.
+- **Reads:** nothing in the home folder but this repo and the tools it runs (uv, its
+  Pythons, git config, the pre-commit cache); never `.env` or `.private/`.
+- **Writes:** nothing that later runs outside the sandbox: the guardrails, `.venv`,
+  `.git/hooks`, `.git/config`, or the trusted uv and pre-commit caches. The session gets its
+  own uv cache in `.autopilot/`; the driver syncs `.venv` and the hooks from the lockfile
+  before each run (ADR 0006).
 - **Network:** only the allowlisted hosts. Any other host is denied, never prompted.
 - **The model key:** a placeholder inside the sandbox; the proxy injects the real value
   only on requests to `api.mistral.ai`.
 - **No escape:** no unsandboxed retry, no start without the sandbox, and no WebFetch or
   WebSearch.
 
-A host the work needs that isn't allowed is a guardrail change: propose it on a branch, and
-the owner approves it.
+A host or path the work needs that isn't allowed is a guardrail change: a `guardrail` issue
+with the patch, for the owner to apply.
 <!-- guarded:end -->
 
 ## Skills
@@ -231,10 +246,10 @@ None edits a file. The main session spawns them (agents can't spawn agents).
 | Hook | Fires on | When it reports |
 |---|---|---|
 | `session_context.py` | Session start, resume, compact | Its output is the status: resume from **Next step** |
-| `protect_files.py` | Read, Edit/Write | Blocked reading or writing `.env*` (not `.env.example`), `.private/` and `.autopilot/gh/`; blocked writing `cache/llm/`, `.git/`, `CLAUDE.local.md`, an accepted ADR or gold labels on `main`, or a `.gitignore` without its required lines. Take the route it names; never work around it |
+| `protect_files.py` | Read, Grep, Glob, Edit/Write | Blocked reading or writing `.env*` (not `.env.example`), `.private/` and `.autopilot/gh/`. Under the driver, also blocked writing any guardrail, `.venv/`, `.git/`, or anything outside the project but temp dirs. Blocked writing `cache/llm/`, `.git/`, `CLAUDE.local.md`, an accepted ADR or gold labels on `main`, or a `.gitignore` without its required lines. Take the route it names; never work around it |
 | `scripts/guard.py --hook` | Edit/Write inside the repo; Bash commands that publish (commit, tag, PR, issue, release text and the files they name) | Blocked: a secret, personal data or a private term. Rewrite the content; describe the fact, not its source. A file it can't read, or `$(...)` in published text, blocks too: use a quoted heredoc or an absolute `--body-file` |
 | `bash_policy.py` | Every Bash call | Blocked: a hook bypass, force or direct push, a merge outside `merge-gate`, a PR approval, a repo-settings call, a change to the loop's GitHub identity, a secret read, a shell write to `.gitignore`, any `--env-file .env`, or (for an agent) anything off its allowlist. If the work truly needs it, escalate |
-| `format_python.py` | After editing a `*.py` file | Fix any lint it returns before the next edit |
+| `format_python.py` | After editing a `*.py` file (not under the driver, where it would run `.venv` code outside the sandbox) | Fix any lint it returns before the next edit |
 | `determinism_guard.py` | After editing core `src/fieldtest/*.py` (not `core/llm/`, `api/`, `cli.py`) | Inject the value as a parameter, wrap listings in `sorted()`, use `hashlib`, or move the code to the edge |
 
 Git hooks (pre-commit, installed by `uv run pre-commit install`) run the same guard on

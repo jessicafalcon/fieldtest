@@ -524,3 +524,50 @@ def test_an_unreachable_origin_blocks_instead_of_trusting_the_prs_guard(
     monkeypatch.delenv("FIELDTEST_GUARD_IS_BASE", raising=False)
     git(repo, "remote", "add", "origin", str(tmp_path / "missing.git"))
     assert run_base_guard_if_modified(repo, ["--pr", "1"]) == 1
+
+
+# --- Push, approval and crash modes (code-reviewer M4) ------------------------------------
+
+
+def test_push_checks_every_commit_not_yet_on_origin(repo: Path, tmp_path: Path) -> None:
+    origin = tmp_path / "origin.git"
+    git(repo, "init", "-q", "--bare", str(origin))
+    git(repo, "remote", "add", "origin", str(origin))
+    git(repo, "push", "-q", "origin", "main")
+    (repo / "b.md").write_text("b\n")
+    git(repo, "add", "b.md")
+    git(repo, "-c", f"user.email={PERSONAL_EMAIL}", "commit", "-q", "-m", "docs: add b")
+    result = run_guard(repo, "--push", env={"PRE_COMMIT_TO_REF": "HEAD"})
+    assert result.returncode == 1
+    assert "[author-email]" in result.stderr
+    # Deleting a remote branch publishes nothing.
+    assert run_guard(repo, "--push", env={"PRE_COMMIT_TO_REF": "0" * 40}).returncode == 0
+
+
+def test_approved_mode_asks_gh_for_the_owners_review_of_the_head(
+    repo: Path, tmp_path: Path
+) -> None:
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    pr = {
+        "reviews": [{"author": {"login": "owner"}, "state": "APPROVED", "commit": {"oid": HEAD}}],
+        "headRefOid": HEAD,
+    }
+    (fake / "gh").write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        f"  *'repo view'*) echo '{json.dumps({'owner': {'login': 'owner'}})}' ;;\n"
+        f"  *) echo '{json.dumps(pr)}' ;;\n"
+        "esac\n"
+    )
+    (fake / "gh").chmod(0o755)
+    env = {"PATH": f"{fake}:/usr/bin:/bin"}
+    assert run_guard(repo, "--approved", "1", env=env).returncode == 0
+    pr["headRefOid"] = "c" * 40  # pushed after the approval
+    (fake / "gh").write_text((fake / "gh").read_text().replace(HEAD + '"}', "c" * 40 + '"}', 1))
+    assert run_guard(repo, "--approved", "1", env=env).returncode == 1
+
+
+def test_a_crash_blocks_with_the_mode_specific_exit_code(repo: Path) -> None:
+    assert run_guard(repo, "--hook", stdin="not json").returncode == 2  # blocks the tool call
+    assert run_guard(repo, "--commit-msg", str(repo / "missing")).returncode == 1  # blocks git

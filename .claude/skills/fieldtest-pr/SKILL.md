@@ -21,8 +21,9 @@ and split what doesn't. A phase is usually several PRs, merged in order.
 - A pure move or rename lands before the behaviour change that needs it.
 - Generated files (`uv.lock`, snapshots, a recorded cache) travel with the change that
   caused them, and the body says they're generated.
-- Guardrail files (CLAUDE.md → Guardrails) go in their own PR when possible, since that
-  PR waits for the owner's approving review.
+- Guardrail files (CLAUDE.md → Guardrails) are never written by the loop under the driver:
+  it proposes the patch in a `guardrail` issue, and the owner applies it. The PR then waits
+  for the owner's approving review.
 
 Branch: `<type>/<slug>` (`feat/score-outcomes`, `fix/cache-atomic-write`).
 

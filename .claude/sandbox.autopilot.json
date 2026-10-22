@@ -1,5 +1,5 @@
 {
-  "_comment": "The loop's sandbox (ADR 0005). scripts/autopilot.sh replaces {ROOT} with the repo's absolute path and passes the result with --settings: a repository's own settings can't enable masking, TLS termination or the strict allowlist. A guardrail file: a new host or path needs the owner's approval.",
+  "_comment": "The loop's sandbox (ADRs 0005, 0006). scripts/render_sandbox.py replaces {ROOT} with the repo's absolute path, adds write and edit denials for every guardrail path, and scripts/autopilot.sh passes the result with --settings: a repository's own settings can't enable masking, TLS termination or the strict allowlist. A guardrail file: a new host or path needs the owner's approval.",
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": true,
@@ -7,21 +7,19 @@
     "autoAllowBashIfSandboxed": true,
     "filesystem": {
       "denyRead": [
+        "~/",
         "{ROOT}/.env",
-        "{ROOT}/.private",
-        "~/.config/gh",
-        "~/.ssh",
-        "~/.aws",
-        "~/.gnupg",
-        "~/.netrc",
-        "~/.docker/config.json",
-        "~/Library/Keychains",
-        "~/.claude.json",
-        "~/.claude/.credentials.json"
+        "{ROOT}/.env.*",
+        "{ROOT}/.private"
       ],
-      "allowWrite": [
-        "~/.cache/uv",
-        "~/.cache/pre-commit"
+      "allowRead": [
+        "{ROOT}",
+        "~/.local/bin",
+        "~/.local/share/uv",
+        "~/.cache/pre-commit",
+        "~/.gitconfig",
+        "~/.config/git",
+        "~/.config/uv"
       ]
     },
     "network": {
@@ -32,6 +30,7 @@
         "api.github.com",
         "codeload.github.com",
         "objects.githubusercontent.com",
+        "results-receiver.actions.githubusercontent.com",
         "pypi.org",
         "files.pythonhosted.org",
         "api.mistral.ai",

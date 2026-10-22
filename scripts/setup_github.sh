@@ -79,7 +79,9 @@ gh label create needs-human --repo "$repo" --color B60205 --force \
 
 say "Ruleset on main: PR only, squash, linear, no force push or deletion, CI must pass"
 # integration_id 15368 is GitHub Actions, so only a real CI run can satisfy the checks.
-# No bypass actors: not even an admin token skips them.
+# A change to a CODEOWNERS path (every guardrail) needs the owner's approval, and a push
+# after it dismisses it, so GitHub itself enforces the approval (ADR 0006). The loop's App
+# authors its PRs and can never approve them. No bypass actors: not even an admin skips this.
 ruleset=$(cat <<'JSON'
 {
   "name": "main",
@@ -93,8 +95,8 @@ ruleset=$(cat <<'JSON'
     {"type": "required_linear_history"},
     {"type": "pull_request", "parameters": {
       "required_approving_review_count": 0,
-      "dismiss_stale_reviews_on_push": false,
-      "require_code_owner_review": false,
+      "dismiss_stale_reviews_on_push": true,
+      "require_code_owner_review": true,
       "require_last_push_approval": false,
       "required_review_thread_resolution": false,
       "allowed_merge_methods": ["squash"]}},

@@ -60,3 +60,18 @@ def test_format_hook_formats_and_reports_what_ruff_cannot_fix(tmp_path: Path) ->
     assert source.read_text().startswith("x = 1\n")
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "F821" in context
+
+
+def test_format_hook_never_runs_venv_code_under_the_driver(tmp_path: Path) -> None:
+    source = tmp_path / "a.py"
+    source.write_text("x = ( 1 )\n")
+    result = subprocess.run(
+        [sys.executable, str(HOOKS / "format_python.py")],
+        input=json.dumps({"tool_input": {"file_path": str(source)}}),
+        text=True,
+        capture_output=True,
+        env={"CLAUDE_PROJECT_DIR": str(tmp_path), "PATH": "/usr/bin:/bin", "FIELDTEST_DRIVER": "1"},
+        check=False,
+    )
+    assert result.returncode == 0
+    assert source.read_text() == "x = ( 1 )\n"  # untouched

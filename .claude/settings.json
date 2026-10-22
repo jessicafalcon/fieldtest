@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_context.py\"",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_context.py\"",
             "timeout": 10
           }
         ]
@@ -59,11 +59,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Read|Grep|Glob|Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_files.py\"",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_files.py\"",
             "timeout": 10
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/guard.py\" --hook",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/scripts/guard.py\" --hook",
             "timeout": 15
           }
         ]
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash_policy.py\"",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/bash_policy.py\"",
             "timeout": 20
           }
         ]
@@ -95,12 +95,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/format_python.py\"",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/format_python.py\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/determinism_guard.py\"",
+            "command": "python3 -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/determinism_guard.py\"",
             "timeout": 10
           }
         ]

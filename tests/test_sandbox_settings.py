@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import json
 import tomllib
+from pathlib import Path
 from typing import Any
+
+from guard_rules import GUARDRAIL_PATHS
+from render_sandbox import render
 
 from tests.conftest import ROOT
 
@@ -45,18 +49,40 @@ def test_the_model_key_is_masked_and_reaches_only_the_model_api() -> None:
 
 
 def test_secrets_and_your_own_credentials_are_unreadable() -> None:
-    deny = settings()["sandbox"]["filesystem"]["denyRead"]
-    for path in ("{ROOT}/.env", "{ROOT}/.private", "~/.config/gh", "~/.ssh", "~/Library/Keychains"):
-        assert path in deny
+    fs = settings()["sandbox"]["filesystem"]
+    assert {"~/", "{ROOT}/.env", "{ROOT}/.env.*", "{ROOT}/.private"} <= set(fs["denyRead"])
+    # Allowed back: the repo and the tools it runs, never a credentials folder.
+    assert "{ROOT}" in fs["allowRead"]
+    for allowed in fs["allowRead"]:
+        assert not any(c in allowed for c in ("/.config/gh", ".ssh", "Keychains", ".aws"))
 
 
-def test_the_driver_renders_absolute_paths_and_always_passes_the_settings() -> None:
-    rendered = TEMPLATE.read_text(encoding="utf-8").replace("{ROOT}", "/abs/repo")
-    deny = json.loads(rendered)["sandbox"]["filesystem"]["denyRead"]
-    assert "/abs/repo/.env" in deny
+def test_rendering_denies_writes_to_everything_that_runs_outside_the_sandbox(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    (root / ".claude" / "hooks").mkdir(parents=True)
+    rendered = render(TEMPLATE.read_text(encoding="utf-8"), root)
+    text = json.dumps(rendered)
+    assert "{ROOT}" not in text
+    deny_write = rendered["sandbox"]["filesystem"]["denyWrite"]
+    for rel in (*GUARDRAIL_PATHS, ".venv", ".git/hooks", ".git/config"):
+        assert str(root / rel.rstrip("/")) in deny_write, rel
+    assert {"~/.cache/uv", "~/.cache/pre-commit"} <= set(deny_write)
+    edits = rendered["permissions"]["deny"]
+    assert f"Edit(/{root}/.claude/hooks/**)" in edits
+    assert f"Edit(/{root}/scripts/guard.py)" in edits
+    assert f"Edit(/{root}/.venv/**)" in edits or f"Edit(/{root}/.venv)" in edits
+    assert {"WebFetch", "WebSearch"} <= set(edits)
+    assert "allowWrite" not in rendered["sandbox"]["filesystem"]
+
+
+def test_the_driver_renders_the_sandbox_each_session_and_always_passes_it() -> None:
     driver = (ROOT / "scripts" / "autopilot.sh").read_text(encoding="utf-8")
-    assert 'sed "s#{ROOT}#$root#g" .claude/sandbox.autopilot.json' in driver
+    assert 'scripts/render_sandbox.py "$root" >"$sandbox"' in driver
     assert '--settings "$sandbox"' in driver
+    assert 'UV_CACHE_DIR="$root/.autopilot/uv-cache"' in driver
+    assert "uv sync --frozen" in driver
     assert "--bare" not in driver.replace("Never add --bare", "")
 
 
@@ -80,4 +106,5 @@ def test_pytest_skips_every_repo_path_the_sandbox_hides() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
     assert hidden
-    assert {f"--ignore={path}" for path in hidden} <= set(addopts)
+    expected = {f"--ignore-glob={p}" if "*" in p else f"--ignore={p}" for p in hidden}
+    assert expected <= set(addopts)

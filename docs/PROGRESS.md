@@ -6,8 +6,8 @@ status markers is what the `SessionStart` hook prints into every session.
 
 <!-- status:start -->
 - **Current phase:** 0A — Repo, tooling and Claude Code workflow
-- **Next step:** PR 1 (#1): implement the owner's decisions on issue #2 on `build/phase-0a-workflow`, re-run `security-reviewer`, then request the owner's approving review. Then `merge-gate`, then Phase 0A's acceptance (skill `phase-review`).
-- **Blocked on:** issue #2 (`security`): PR 1's reviews found that code the sandbox can write runs outside it next to real secrets (F1), and that GitHub doesn't enforce the owner's approval of a guardrail change (F2).
+- **Next step:** PR 1 (#1): the owner's decisions on issue #2 are on the branch (ADR 0006). Re-run `code-reviewer` and `security-reviewer` on the new head, post a fix log, then request the owner's approving review. Then `merge-gate`, then Phase 0A's acceptance (skill `phase-review`).
+- **Blocked on:** nothing.
 <!-- status:end -->
 
 ## Phase 0A — Repo, tooling and Claude Code workflow
@@ -27,7 +27,8 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] Prerequisites §12, steps 1–4 done by the human (repo published, App `fieldtest-loop-jessicafalcon` installed, `preflight --online` passes); `.github/loop-identity.json` filled in
 - [x] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a non-allowlisted host is denied (403 from the proxy); Python's TLS trusts the proxy's certificate; the existing `allowWrite` cache paths suffice. It found four fixes, made in PR 1: pytest stats `.env` and `.private/` while collecting, so they are `--ignore`d; the driver's git identity and flag leaked into the tests, so `tests/conftest.py` removes them; the file fixers wrote on push, so they run on commit only; and the session can't read `.env`, so the driver writes its preflight report for it. Also unreadable inside it: CI logs (`results-receiver.actions.githubusercontent.com` isn't allowlisted). Unverified: that a sandboxed command sees only the placeholder key (the bash policy refuses to expand it); owed to Phase 0B's smoke call.
 - [ ] PR 1 opened by the loop's App (#1, done), approved by the owner, merged by `merge-gate`. Once approved, check that a guardrail PR's `security` check turns green on the review event and that `merge-gate` reads the newest run (code-reviewer M1)
-- Owed by the acceptance: skill `autopilot` step 4 says `git push -u`, but the sandbox denies writes to `.git/config`, so the upstream isn't recorded (the push succeeds). Drop `-u` (a guardrail change).
+- [x] Issue #2's decisions (ADR 0006): nothing the loop writes runs outside the sandbox (write and edit denials for the guardrails, `.venv`, `.git/hooks` and the tool caches; the driver syncs tooling itself; hooks with `python3 -I`; home folder unreadable but the repo and its tools; the loop proposes guardrail changes instead of writing them), and GitHub enforces the owner's approval (`.github/CODEOWNERS`, code-owner review in the ruleset, no Workflows write for the App). Also: `git grep -O` and `--no-index` refused for agents, secret reads checked for agents, the expected red `security` check on a guardrail PR, the key and preflight re-read each session, the usage-limit wait, `git push` without `-u`, tests for `--push`, `--approved` and crash exits
+- Owed before Phase 0B: the loop runs as a separate macOS user (brief §12)
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
 
 ## Phase 0B — Decisions and data spike

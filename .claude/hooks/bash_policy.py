@@ -13,9 +13,11 @@
 
 The role is the payload's `agent_type`, or `--as NAME` from an agent's frontmatter
 registration (a backup: Claude Code skips frontmatter hooks in an untrusted folder).
-These rules stop accidents and injected instructions. The hard boundaries are elsewhere:
-the GitHub App identity, which can't approve its own PRs or change settings (ADR 0003),
-and the server-side ruleset (ADR 0001).
+These rules stop accidents and injected instructions; they read command text, so code
+run through an interpreter (`python3 -c "…gh pr merge…"`) isn't seen. The boundaries that
+hold anyway are elsewhere: the sandbox (ADRs 0005, 0006), the App identity, which can't
+approve its own PRs or change settings (ADR 0003), and GitHub's ruleset, which requires the
+checks and the owner's code-owner review (ADR 0006).
 Any crash exits 2, so a broken policy blocks instead of allowing.
 """
 
@@ -88,6 +90,7 @@ WRITING_FLAGS = frozenset(
         "--snapshot-update",
         "--install-types",
         "--open-files-in-pager",
+        "--no-index",
         "--html-report",
         "--txt-report",
         "--xml-report",
@@ -391,7 +394,8 @@ def secret_reads(words: list[str]) -> list[str]:
     """
     found = []
     for i, word in enumerate(words):
-        name = word.rstrip("/").rsplit("/", 1)[-1]
+        # `HEAD:.env` and `dir/.env` both name the file: split on `:` and `/`.
+        name = re.split(r"[/:]", word.rstrip("/"))[-1]
         if re.fullmatch(r"\.env(\.[\w-]+)?", name) and name != ".env.example":
             if i > 0 and words[i - 1] == "--env-file":
                 found.append(
@@ -404,7 +408,10 @@ def secret_reads(words: list[str]) -> list[str]:
             found.append("no command loads .env (ADR 0005)")
         if ".autopilot/gh" in word:
             found.append(".autopilot/gh/ holds the loop's token; never read it")
-        if word == ".private" or word.startswith(".private/") or "/.private" in word:
+        if any(
+            part == ".private" or part.startswith(".private/") or "/.private" in part
+            for part in word.split(":")
+        ):
             found.append(".private/ is the human's; Claude never reads it by hand")
         if SECRET_VAR.search(word):
             found.append("expanding a secret variable can print it")
@@ -429,7 +436,8 @@ def check(command: str, role: str, cwd: Path) -> list[str]:
     """Every reason `command` is blocked for `role`, or [] when it may run."""
     if role in READ_ONLY_AGENTS or role == MERGE_GATE:
         if allowed_for_agent(command, role):
-            return []
+            # An allowed read can still name a secret (`git show HEAD:.env`).
+            return secret_reads(shlex.split(command))
         what = "the merge gate" if role == MERGE_GATE else "review agents"
         return [
             f"{what} run only the allowlisted check and read commands; report instead of acting"

@@ -86,16 +86,21 @@ A plan the arbiter accepts is approved. Don't ask a human.
 
 Run `CLAUDE.md` → "The pre-PR gate", steps 1–3, in order. Then open the PR: skill
 `fieldtest-pr` for the title and body, skill `fieldtest-voice` for the wording, body
-file under `.autopilot/` passed by absolute path. Push with `git push -u origin
-<branch>` and `gh pr create --base main --body-file <abs path>`.
+file under `.autopilot/` passed by absolute path. Push with `git push origin <branch>`
+(no `-u`: the sandbox can't write `.git/config`) and
+`gh pr create --base main --body-file <abs path>`.
 
 ## 5. Reviews
 
-1. Run `gh pr checks <n> --watch --fail-fast`. Red: read the failing log
-   (`gh run view <id> --log-failed`), fix, push, repeat (retry budget below).
+1. Run `gh pr checks <n> --watch --fail-fast`. Red: run `python3 scripts/guard.py --pr <n>`
+   and read the failing log (`gh run view <id> --log-failed`), fix, push, repeat (retry
+   budget below). On a PR that touches a guardrail, a red `security` check whose only
+   finding is `[guardrail-change]` is expected: it waits for the owner's approval. Don't
+   spend the fix budget on it; carry on with the reviews.
 2. Spawn the review agents `CLAUDE.md` → "Which reviews" requires, **in parallel, in one
    turn**. Give each one the PR number, the head SHA, the brief's line range and the
-   rules at stake.
+   rules at stake. In a headless run, ending your turn ends the session, so **never end
+   it while an agent you spawned is still running**: wait for every report.
 3. Post each report as its own PR comment, verbatim, with this first line:
    `<!-- fieldtest-review agent=<name> verdict=<ready|ready-after-fixes|not-ready> sha=<reviewed head SHA> -->`
    The verdict in the marker is the report's own verdict line, lowercased and hyphenated.
@@ -121,9 +126,9 @@ Spawn `merge-gate` with the PR number. It verifies, merges, and returns **MERGED
   then print `AUTOPILOT-RESULT: merged #<n>`.
 - REFUSED: fix the findings (step 6), then spawn it again.
 - ESCALATE `guardrail`: the PR changes a guardrail, and only the owner's approving
-  review on the head commit lets it merge. Request it with
-  `gh pr edit <n> --add-reviewer <owner>`, then post a PR comment listing the guardrail
-  files, what each change does, and the security-reviewer's verdict. Call
+  review on the head commit lets it merge (GitHub enforces it through `CODEOWNERS`). Request
+  it with `gh pr edit <n> --add-reviewer <owner>`, then post a PR comment listing the
+  guardrail files, what each change does, and the security-reviewer's verdict. Call
   `PushNotification` if available, and print `AUTOPILOT-RESULT: awaiting-approval #<n>`.
   The driver waits for the approval, then the next iteration resumes here. Never approve,
   and never ask for an approval anywhere but the review request.
@@ -146,8 +151,16 @@ failure past any budget escalates (`budget`) with what was tried.
 3. Call `PushNotification` (load it via ToolSearch) with the issue title, if available.
 4. Print `AUTOPILOT-RESULT: escalated #<issue>` and stop.
 
-Escalation types: `human-action`, `decision`, `security`, `budget`, `infrastructure`,
-`invariant`. A `guardrail` change uses the review request in step 7 instead of an issue.
+Escalation types: `human-action`, `decision`, `guardrail`, `security`, `budget`,
+`infrastructure`, `invariant`.
+
+**A guardrail you need to change.** Under the driver you can't write guardrail files: the
+sandbox and `protect_files.py` deny it, because hooks and the driver run that code outside
+the sandbox (ADR 0006). Write the change as a patch under `.autopilot/proposals/`, then open
+a `guardrail` issue with the patch inline, what it changes, and why. The owner applies it
+from an interactive session and pushes it to the branch; you then continue, and the PR
+waits for the owner's approval at step 7. The same goes for a git operation that fails
+with EPERM on a guardrail path (merging a `main` whose guardrails changed): escalate it.
 
 ## Keys and live calls
 

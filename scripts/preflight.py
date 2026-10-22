@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.append(str(Path(__file__).resolve().parent))
 from loop_auth import APP_KEYS, read_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -196,7 +196,7 @@ def check_later_phases() -> list[Result]:
 
 
 def check_online() -> list[Result]:
-    code, out = run(sys.executable, str(ROOT / "scripts" / "loop_auth.py"), "check")
+    code, out = run(sys.executable, "-I", str(ROOT / "scripts" / "loop_auth.py"), "check")
     return [
         Result(
             "loop token",

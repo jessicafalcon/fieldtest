@@ -71,6 +71,9 @@ def test_checks_and_reads_are_allowed_for_reviewers(command: str) -> None:
         f"gh pr merge 4 --squash --delete-branch --match-head-commit {SHA}",
         "echo hi > file",
         "git grep -Ovim TODO",
+        "git diff --no-index ../other-project/.env /dev/null",
+        "git show HEAD:.env",
+        "git log -p -- .private/notes.md",
         "git grep --open-files-in-pager=sh TODO",
     ],
 )

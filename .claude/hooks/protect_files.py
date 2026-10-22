@@ -19,6 +19,12 @@ Never read: `.env` and `.env.*` (except `.env.example`), `.private/**`, and
 
 The ADR and gold rules leave a file editable on the branch that introduces it, until it merges.
 
+Under the loop's driver (`FIELDTEST_DRIVER=1`, ADR 0006), also denied: writing any guardrail
+path, `.venv/` or `.git/` (code that runs outside the sandbox later), and writing anywhere
+outside the project except temporary directories. The file tools run outside the sandbox,
+so this hook is what keeps them inside the same boundary. Grep and Glob are checked like
+Read, so a search can't read what a Read can't.
+
 The brief's "ask" cases are denials here because the loop runs unattended: a prompt would
 stall it, and every case has a deterministic route that doesn't need one.
 Any crash exits 2, so a broken hook blocks instead of allowing.
@@ -34,8 +40,8 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from guard_rules import missing_ignores
+sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
+from guard_rules import is_guardrail_path, missing_ignores
 
 
 def read_reason(rel: str) -> str | None:
@@ -101,23 +107,48 @@ def gitignore_after(tool: str, tool_input: dict[str, Any], current: str) -> str:
     return text
 
 
+# Prefixes to compare paths against, not files this hook creates.
+TEMP_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")  # noqa: S108
+READ_TOOLS = {"Read", "Grep", "Glob"}
+
+
+def driver_reason(rel: str) -> str | None:
+    """Why the loop, under its driver, must not write `rel`, or None."""
+    if is_guardrail_path(rel):
+        return "a guardrail: the loop proposes the change in an issue, and the owner makes it"
+    if rel.split("/", 1)[0] in {".venv", ".git"}:
+        return "it holds code that runs outside the sandbox"
+    return None
+
+
 def main() -> int:
     root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd()).resolve()
     payload = json.load(sys.stdin)
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
+    under_driver = os.environ.get("FIELDTEST_DRIVER") == "1"
     raw = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    if tool in {"Grep", "Glob"}:
+        raw = tool_input.get("path") or ""
     if not raw:
         return 0
+    resolved = Path(raw).expanduser().resolve()
     try:
-        rel = Path(raw).resolve().relative_to(root).as_posix()
+        rel = resolved.relative_to(root).as_posix()
     except ValueError:
-        return 0  # outside the project: memory, scratchpad
-    if tool == "Read":
-        why = read_reason(rel)
+        # Outside the project: the scratchpad, memory. Under the driver only temp dirs are
+        # writable, so nothing it writes can land where something later executes it.
+        if under_driver and tool not in READ_TOOLS and not str(resolved).startswith(TEMP_ROOTS):
+            print(
+                f"protect-files: blocked writing {resolved}: outside the project.", file=sys.stderr
+            )
+            return 2
+        return 0
+    if tool in READ_TOOLS:
+        why = read_reason(rel) if rel != "." else None
         verb = "reading"
     else:
-        why = reason(rel, root)
+        why = reason(rel, root) or (driver_reason(rel) if under_driver else None)
         verb = "writing"
         if why is None and rel == ".gitignore":
             current = (root / rel).read_text(encoding="utf-8") if (root / rel).is_file() else ""

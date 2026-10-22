@@ -16,9 +16,11 @@ never merges a PR from a fork. A maintainer reviews outside contributions by han
   be removed by any edit, commit, push or merge. Claude Code never reads it, and CI has
   no key and runs in replay mode.
 - **A sandbox for the autonomous loop.** Every command it runs is confined by Claude
-  Code's OS-enforced sandbox: no reads of `.env` or the owner's credentials, network only
-  to allowlisted hosts, and the model key visible only as a placeholder the proxy replaces
-  on requests to the model API (ADR 0005).
+  Code's OS-enforced sandbox: no reads of the home folder except the repo and its tools, no
+  reads of `.env`, network only to allowlisted hosts, and the model key visible only as a
+  placeholder the proxy replaces on requests to the model API (ADR 0005). The loop can't
+  write anything that later runs outside the sandbox: the guardrails, hooks, `.venv`,
+  `.git/hooks` and the tool caches (ADR 0006).
 - **A separate identity for the autonomous loop.** It acts as a GitHub App without
   administration rights, using one-hour tokens. It can't change settings, and it can't
   approve its own PRs, so a change to the guardrails merges only after the owner's review
@@ -57,7 +59,11 @@ Where it runs:
    zizmor over the workflows.
 5. **At merge:** `scripts/guard.py --pr` checks the PR's title, body, diff, commits,
    checks and reviews, refuses PRs from forks, and refuses a guardrail change without the
-   owner's approving review of its head commit.
+   owner's approving review of its head commit. GitHub enforces that approval itself:
+   every guardrail path is in `CODEOWNERS`, and the ruleset requires a code owner's review
+   and dismisses it on a later push. That the merge gate is the only role that merges is
+   the loop's policy (a hook that reads command text); what GitHub enforces is that nothing
+   merges without green checks and, for a guardrail, the owner's approval.
 6. **On GitHub:** secret scanning with push protection, Dependabot alerts and updates,
    private vulnerability reporting, and a `main` ruleset (PR only, squash only, the
    `check` and `security` checks from GitHub Actions, no force push, no bypass).

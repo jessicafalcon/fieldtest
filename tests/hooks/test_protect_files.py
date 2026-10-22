@@ -133,3 +133,60 @@ def test_hook_exits_2_on_a_cache_edit_and_0_outside_the_repo(repo: Path, tmp_pat
     assert run(repo / "cache" / "llm" / "ab.json") == 2  # the brief's Phase 0A acceptance case
     assert run(repo / "src" / "x.py") == 0
     assert run(tmp_path / "elsewhere.txt") == 0
+
+
+def run_hook(repo: Path, tool: str, tool_input: dict[str, Any], *, driver: bool) -> int:
+    env = {"CLAUDE_PROJECT_DIR": str(repo), "PATH": "/usr/bin:/bin"}
+    if driver:
+        env["FIELDTEST_DRIVER"] = "1"
+    payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
+    return subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=payload,
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "scripts/guard.py",
+        ".claude/hooks/x.py",
+        ".claude/agents/plan-arbiter.md",
+        "pyproject.toml",
+        ".venv/lib/python3.12/site-packages/evil.pth",
+        ".git/hooks/pre-push",
+    ],
+)
+def test_under_the_driver_code_that_runs_outside_the_sandbox_is_unwritable(
+    repo: Path, rel: str
+) -> None:
+    target = {"file_path": str(repo / rel), "content": "x"}
+    assert run_hook(repo, "Write", target, driver=True) == 2
+    if not rel.startswith((".venv", ".git")):
+        assert run_hook(repo, "Write", target, driver=False) == 0  # the owner's session may
+
+
+def test_under_the_driver_only_temp_dirs_are_writable_outside_the_project(repo: Path) -> None:
+    home_file = {"file_path": str(Path.home() / ".zshrc"), "content": "x"}
+    assert run_hook(repo, "Write", home_file, driver=True) == 2
+    scratch = {"file_path": "/tmp/scratch.txt", "content": "x"}  # noqa: S108 (never created)
+    assert run_hook(repo, "Write", scratch, driver=True) == 0
+    in_repo = {"file_path": str(repo / "src/x.py"), "content": "x"}
+    assert run_hook(repo, "Write", in_repo, driver=True) == 0
+
+
+def test_grep_and_glob_cannot_read_the_token_or_the_keys(repo: Path) -> None:
+    assert (
+        run_hook(
+            repo, "Grep", {"pattern": "token", "path": str(repo / ".autopilot/gh")}, driver=False
+        )
+        == 2
+    )
+    assert (
+        run_hook(repo, "Glob", {"pattern": "*", "path": str(repo / ".private")}, driver=False) == 2
+    )
+    assert run_hook(repo, "Grep", {"pattern": "x", "path": str(repo)}, driver=False) == 0

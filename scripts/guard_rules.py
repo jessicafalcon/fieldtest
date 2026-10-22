@@ -90,6 +90,9 @@ def forbidden_path(path: str) -> str | None:
 # sandbox, and the pre-registration file.
 GUARDRAIL_PATHS = (
     ".gitignore",
+    "pyproject.toml",
+    "Makefile",
+    ".github/CODEOWNERS",
     ".claude/settings.json",
     ".claude/sandbox.autopilot.json",
     ".claude/hooks/",
@@ -108,6 +111,8 @@ GUARDRAIL_PATHS = (
     "scripts/guard_rules.py",
     "scripts/autopilot.sh",
     "scripts/loop_auth.py",
+    "scripts/preflight.py",
+    "scripts/render_sandbox.py",
     "scripts/setup_github.sh",
 )
 
