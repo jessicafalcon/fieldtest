@@ -70,6 +70,8 @@ def test_checks_and_reads_are_allowed_for_reviewers(command: str) -> None:
         "python3 scripts/guard.py --pr 4",
         f"gh pr merge 4 --squash --delete-branch --match-head-commit {SHA}",
         "echo hi > file",
+        "git grep -Ovim TODO",
+        "git grep --open-files-in-pager=sh TODO",
     ],
 )
 def test_everything_else_is_blocked_for_reviewers(command: str) -> None:

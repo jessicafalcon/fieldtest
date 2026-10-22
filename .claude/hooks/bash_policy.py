@@ -87,12 +87,14 @@ WRITING_FLAGS = frozenset(
         "--update-golden",
         "--snapshot-update",
         "--install-types",
+        "--open-files-in-pager",
         "--html-report",
         "--txt-report",
         "--xml-report",
     }
 )
-WRITING_SHORT_FLAGS = ("-o", "-c")
+# `-O` is `git grep --open-files-in-pager`, which runs any command as the "pager".
+WRITING_SHORT_FLAGS = ("-o", "-c", "-O")
 
 
 def _writes(word: str) -> bool:
