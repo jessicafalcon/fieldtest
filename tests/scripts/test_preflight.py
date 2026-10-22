@@ -43,3 +43,20 @@ def test_only_checks_needed_by_the_current_phase_fail_the_run(
     assert "ollama" not in capsys.readouterr().out
     assert main(["--all"]) == 1
     assert "FAIL  ollama (from 3b)" in capsys.readouterr().out
+
+
+def test_inside_a_driver_session_preflight_shows_the_drivers_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report = tmp_path / "preflight.txt"
+    report.write_text(
+        "PASS  FIELDTEST_APP_ID (from 0A): set\npreflight: 0 failing, up to phase 0A\n"
+    )
+    monkeypatch.setattr(preflight, "DRIVER_REPORT", report)
+    monkeypatch.setenv("FIELDTEST_DRIVER", "1")
+    assert main([]) == 0
+    assert "FIELDTEST_APP_ID (from 0A): set" in capsys.readouterr().out
+    report.write_text(
+        "FAIL  MISTRAL_API_KEY (from 0B): not set\npreflight: 1 failing, up to phase 0B\n"
+    )
+    assert main([]) == 1

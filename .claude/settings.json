@@ -10,13 +10,9 @@
     "deny": [
       "Read(./.env)",
       "Edit(./.env)",
-      "Write(./.env)",
       "Read(./.private/**)",
       "Edit(./.private/**)",
-      "Write(./.private/**)",
-      "Read(./.autopilot/gh/**)",
       "Edit(./CLAUDE.local.md)",
-      "Write(./CLAUDE.local.md)",
       "Bash(git commit --no-verify:*)",
       "Bash(git push --no-verify:*)",
       "Bash(git push --force:*)",

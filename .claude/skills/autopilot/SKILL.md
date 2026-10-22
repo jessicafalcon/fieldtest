@@ -29,7 +29,8 @@ in a session.
    print `AUTOPILOT-RESULT: blocked #<n>` and stop.
 2. **Prerequisites.** `python3 scripts/preflight.py`. It checks what the current phase
    needs (PROJECT-BRIEF.md §12) and shows whether each `.env` key is set, never its
-   value. A failure you can fix (hooks not installed) you fix. Anything else is a
+   value. Under the driver it prints the driver's own check from just before this session,
+   because the sandbox hides `.env` from you. A failure you can fix (hooks not installed) you fix. Anything else is a
    `human-action` escalation that quotes the failing lines and the §12 steps.
 3. **Up to date.** `git fetch origin`, then
    `gh pr list --state open --json number,author,headRefName`. (The loop's App token can't
@@ -179,6 +180,8 @@ overrides, no `gh auth` login or switch (the bash policy blocks them).
 Every iteration ends with exactly one line, the last thing printed:
 `AUTOPILOT-RESULT: merged #<pr>` · `AUTOPILOT-RESULT: awaiting-approval #<pr>` ·
 `AUTOPILOT-RESULT: escalated #<issue>` · `AUTOPILOT-RESULT: blocked #<issue>` ·
-`AUTOPILOT-RESULT: done`. `scripts/autopilot.sh` continues after `merged`. After
+`AUTOPILOT-RESULT: done` · `AUTOPILOT-RESULT: error <one-line reason>`. Use `error` only when
+the loop can't operate at all (gh, git or the sandbox broken) and so can't open an issue;
+the driver then stops and shows the reason. `scripts/autopilot.sh` continues after `merged`. After
 `awaiting-approval`, `escalated` or `blocked` it waits for the human (an approval, a closed
 issue) and then continues; after `done` it stops.

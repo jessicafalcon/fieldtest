@@ -18,8 +18,8 @@
 #
 # Each iteration ends with one `AUTOPILOT-RESULT:` line (CLAUDE.md, The loop). After
 # `merged` it continues; after `escalated`, `blocked` or `awaiting-approval` it waits for
-# you (an issue closed, a PR approved) and then continues; after `done`, or two failed
-# iterations in a row, it stops. Never add --bare (it skips every hook) or
+# you (an issue closed, a PR approved) and then continues; after `done`, `error` (the loop
+# can't operate and can't open an issue), or two failed iterations in a row, it stops. Never add --bare (it skips every hook) or
 # --permission-mode bypassPermissions.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -34,7 +34,8 @@ if [ -n "${FIELDTEST_AUTOPILOT_BUDGET_USD:-}" ]; then
 fi
 
 # Prerequisites for the current phase (PROJECT-BRIEF.md §12), checked before anything runs.
-if ! uv run --frozen python scripts/preflight.py --online; then
+# The session can't read .env inside the sandbox, so it reads this report instead (no values).
+if ! uv run --frozen python scripts/preflight.py --online | tee .autopilot/preflight.txt; then
   echo "autopilot: prerequisites missing (above); see PROJECT-BRIEF.md §12."
   exit 1
 fi
@@ -47,9 +48,10 @@ refresh() { uv run --frozen python scripts/loop_auth.py write-gh-config "$ghdir"
 refresh
 ( while sleep 1800; do refresh || echo "autopilot: token refresh failed; retrying in 30 minutes" >&2; done ) &
 refresher=$!
+disown "$refresher"  # stopped by the exit trap, without a job-control notice
 trap 'kill "$refresher" 2>/dev/null || true; rm -rf "$ghdir"' EXIT
 
-export GH_CONFIG_DIR="$ghdir" GH_PROMPT_DISABLED=1
+export GH_CONFIG_DIR="$ghdir" GH_PROMPT_DISABLED=1 FIELDTEST_DRIVER=1
 # Git asks only the App's credential: the empty value drops every other helper (such as
 # the keychain holding your own token) for this process tree.
 export GIT_CONFIG_COUNT=2 \
@@ -109,6 +111,9 @@ for i in $(seq 1 "$max"); do
     "AUTOPILOT-RESULT: escalated"* | "AUTOPILOT-RESULT: blocked"*)
       wait_for_human "" || exit 0 ;;
     "AUTOPILOT-RESULT: done"*) exit 0 ;;
+    "AUTOPILOT-RESULT: error"*)
+      echo "autopilot: the loop can't operate (above, and in $log); fix it, then rerun."
+      exit 1 ;;
     *) if [ "$failures" -ge 2 ]; then
          echo "autopilot: two iterations in a row ended without a result; stopping."
          exit 1

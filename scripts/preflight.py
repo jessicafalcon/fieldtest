@@ -12,6 +12,7 @@ The loop runs it before each iteration and escalates the failures it can't fix.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_auth import APP_KEYS, read_env
 
 ROOT = Path(__file__).resolve().parents[1]
+# Written by scripts/autopilot.sh before each session, where .env is still readable.
+DRIVER_REPORT = ROOT / ".autopilot" / "preflight.txt"
 # Keep in sync with the phase list in PROJECT-BRIEF.md §7 and the table in §12.
 PHASES = ("0A", "0B", "1", "2", "3", "3b", "4", "5a", "5b", "6", "7")
 
@@ -216,6 +219,13 @@ def current_phase(progress: str) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if os.environ.get("FIELDTEST_DRIVER") == "1" and DRIVER_REPORT.is_file():
+        # Inside the loop's sandbox `.env` can't be read, by design. The driver checked it
+        # just before this session started.
+        report = DRIVER_REPORT.read_text(encoding="utf-8")
+        print("preflight: the driver's check before this session (the sandbox hides .env):")
+        print(report, end="")
+        return 0 if re.search(r"^preflight: 0 failing", report, re.MULTILINE) else 1
     upto = (
         PHASES[-1]
         if "--all" in argv

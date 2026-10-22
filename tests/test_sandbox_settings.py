@@ -57,3 +57,12 @@ def test_the_driver_renders_absolute_paths_and_always_passes_the_settings() -> N
     assert 'sed "s#{ROOT}#$root#g" .claude/sandbox.autopilot.json' in driver
     assert '--settings "$sandbox"' in driver
     assert "--bare" not in driver.replace("Never add --bare", "")
+
+
+def test_gh_can_read_its_own_config_inside_the_sandbox() -> None:
+    """A Read deny rule is merged into the sandbox: one on `.autopilot/gh` locks gh out of the
+    loop's token (the first trial run failed exactly so). The hooks guard it instead."""
+    project = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert not [r for r in project["permissions"]["deny"] if ".autopilot" in r]
+    assert not [p for p in settings()["sandbox"]["filesystem"]["denyRead"] if ".autopilot" in p]
+    assert not [r for r in project["permissions"]["deny"] if r.startswith("Write(")]

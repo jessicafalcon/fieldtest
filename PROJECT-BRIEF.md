@@ -411,7 +411,7 @@ Hook scripts live in `.claude/hooks/` (and `scripts/guard.py`), are written in P
 
 **GitHub** (`scripts/setup_github.sh`, run once by a human, plus the App in §12): the description and topics, secret scanning with push protection, Dependabot alerts and updates, private vulnerability reporting, a read-only default workflow token, SHA-pinned allowed actions, squash-only merges, and the `main` ruleset (PR only, linear, no force push or deletion, `check` and `security` from GitHub Actions, no bypass actors).
 
-**Permissions** in `.claude/settings.json`: deny reading or writing `.env` and `.private/**`, reading `.autopilot/gh/**`, writing `CLAUDE.local.md`, and approving a PR. `protect_files.py` covers the `.env.*` variants, so `.env.example` stays readable.
+**Permissions** in `.claude/settings.json`: deny reading or editing `.env` and `.private/**`, editing `CLAUDE.local.md`, and approving a PR. Read deny rules also bind the sandbox, so they never name `.autopilot/gh/`: `gh` itself must read its token there. `protect_files.py` keeps the Read tool out of it, and `bash_policy.py` keeps shell commands out. It also covers the `.env.*` variants, so `.env.example` stays readable.
 
 **Optional, personal (not committed):** a macOS `Notification` hook in `~/.claude/settings.json` so you're alerted when Claude is waiting for input.
 
