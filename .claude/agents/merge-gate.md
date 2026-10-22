@@ -35,10 +35,11 @@ output: it filters out every comment not written by the repo owner. Never read
 
 1. **CI.** `gh pr checks <n> --watch --fail-fast`. A failure → **REFUSED** (name the check).
 2. **Deterministic rules.** `python3 scripts/guard.py --pr <n>`. It prints the PR's head
-   SHA, then the owner's review and fix-log comments, then either every rule it broke
+   SHA, then the loop's and the owner's review and fix-log comments, then every rule it broke
    or a pass line.
-   - A `guardrail-change` finding → **ESCALATE** (`guardrail`): a human must review it and
-     add `human-approved`. Never anything else.
+   - A `guardrail-change` finding → **ESCALATE** (`guardrail`): the owner must review the PR
+     and approve its head commit. Nothing else satisfies it, and the loop can't approve its
+     own PR.
    - A `private-path`, `secret` or `personal-data` finding in a commit → **ESCALATE**
      (`security`): a branch history with it must not be pushed further or merged.
    - Any other finding → **REFUSED**, listing each one.

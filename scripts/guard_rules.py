@@ -12,15 +12,20 @@ from pathlib import PurePosixPath
 
 __all__ = [
     "GUARDRAIL_PATHS",
+    "REQUIRED_IGNORES",
     "REVIEW_AGENTS",
     "Finding",
     "added_lines_by_file",
+    "approved_on_head",
     "check_author_email",
     "check_commit_subject",
     "forbidden_path",
+    "gitignore_findings",
     "is_docs_only",
     "is_guardrail_path",
     "load_terms",
+    "missing_ignores",
+    "removed_lines_by_file",
     "required_reviews",
     "scan_text",
 ]
@@ -69,21 +74,57 @@ def forbidden_path(path: str) -> str | None:
 
 # --- Guardrails: files whose change needs a human ----------------------------------------
 
-# Keep in sync with the "Guardrails" table in CLAUDE.md and ADR 0001. A PR that touches
-# any of these merges only with the `human-approved` label, which only a human applies.
+# Keep in sync with "Guardrails" in CLAUDE.md and ADR 0001. A PR that touches any of
+# these merges only with the repo owner's approving review on its head commit. The loop
+# acts as its own GitHub App, and a PR's author can never approve it (ADR 0003).
 GUARDRAIL_PATHS = (
+    ".gitignore",
     ".claude/settings.json",
     ".claude/hooks/",
     ".claude/agents/merge-gate.md",
     ".claude/agents/security-reviewer.md",
     ".github/workflows/",
     ".github/dependabot.yml",
+    ".github/loop-identity.json",
     ".pre-commit-config.yaml",
     "scripts/guard.py",
     "scripts/guard_rules.py",
     "scripts/autopilot.sh",
+    "scripts/loop_auth.py",
     "scripts/setup_github.sh",
 )
+
+# Lines `.gitignore` must always hold, so `.env` and private context can never be staged
+# by accident. No edit, commit, push or merge may remove one (protect_files.py and the
+# guard). Keep in sync with .gitignore.
+REQUIRED_IGNORES = (
+    ".env",
+    ".env.*",
+    "!.env.example",
+    ".private/",
+    "CLAUDE.local.md",
+    ".autopilot/",
+)
+
+
+def missing_ignores(gitignore: str) -> list[str]:
+    """The required lines a `.gitignore` text lacks.
+
+    >>> missing_ignores(".env\\n.env.*\\n!.env.example\\n.private/\\nCLAUDE.local.md\\n")
+    ['.autopilot/']
+    """
+    present = {line.strip() for line in gitignore.splitlines()}
+    return [line for line in REQUIRED_IGNORES if line not in present]
+
+
+def gitignore_findings(removed: str, added: str, where: str) -> list[Finding]:
+    """A change that removes a required `.gitignore` line without adding it back."""
+    gone = {ln.strip() for ln in removed.splitlines()} - {ln.strip() for ln in added.splitlines()}
+    return [
+        Finding(where, "gitignore", f"removes the required ignore line `{line}`")
+        for line in REQUIRED_IGNORES
+        if line in gone
+    ]
 
 
 def is_guardrail_path(path: str) -> bool:
@@ -199,6 +240,25 @@ def scan_text(
     return findings
 
 
+def removed_lines_by_file(diff: str) -> dict[str, str]:
+    """The removed lines of a unified diff, joined per source file.
+
+    >>> removed_lines_by_file("--- a/.gitignore\\n+++ b/.gitignore\\n@@ -1 +0,0 @@\\n-.env\\n")
+    {'.gitignore': '.env'}
+    """
+    files: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in diff.splitlines():
+        if line.startswith("--- "):
+            source = line[4:]
+            current = None if source == "/dev/null" else files.setdefault(source[2:], [])
+        elif line.startswith("+++ "):
+            continue
+        elif line.startswith("-") and current is not None:
+            current.append(line[1:])
+    return {name: "\n".join(lines) for name, lines in files.items()}
+
+
 def added_lines_by_file(diff: str) -> dict[str, str]:
     """The added lines of a unified diff, joined per destination file.
 
@@ -256,6 +316,22 @@ REVIEW_AGENTS = (
     "test-reviewer",
 )
 DEPENDABOT = "dependabot[bot]"
+
+
+def approved_on_head(reviews: list[dict[str, str]], *, owner: str, head: str) -> bool:
+    """True when the owner's latest review approves exactly the head commit.
+
+    `reviews` are in submission order, each `{"login", "state", "commit"}`. A later push
+    moves the head, so an approval of an older commit no longer counts, as GitHub's own
+    "dismiss stale approvals" would do.
+
+    >>> approved_on_head([{"login": "me", "state": "APPROVED", "commit": "abc"}], owner="me", head="abc")
+    True
+    >>> approved_on_head([{"login": "me", "state": "APPROVED", "commit": "old"}], owner="me", head="abc")
+    False
+    """
+    own = [r for r in reviews if r["login"] == owner and r["state"] != "COMMENTED"]
+    return bool(own) and own[-1]["state"] == "APPROVED" and own[-1]["commit"] == head
 
 
 def is_docs_only(paths: list[str]) -> bool:

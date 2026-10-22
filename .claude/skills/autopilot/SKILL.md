@@ -27,12 +27,18 @@ in a session.
 
 1. **Blocked?** `gh issue list --label needs-human --state open`. Any open issue:
    print `AUTOPILOT-RESULT: blocked #<n>` and stop.
-2. **Up to date.** `git fetch origin`, then `gh pr list --author @me --state open`.
+2. **Prerequisites.** `python3 scripts/preflight.py`. It checks what the current phase
+   needs (PROJECT-BRIEF.md §12) and shows whether each `.env` key is set, never its
+   value. A failure you can fix (hooks not installed) you fix. Anything else is a
+   `human-action` escalation that quotes the failing lines and the §12 steps.
+3. **Up to date.** `git fetch origin`, then
+   `gh pr list --state open --json number,author,headRefName`. (The loop's App token can't
+   resolve `@me`.)
    - One open PR: resume it at the step its state shows (no reviews yet → step 5;
-     reviews posted → step 6; ready → step 7).
+     reviews posted → step 6; ready, or waiting for an approval → step 7).
    - More than one: escalate (`invariant`). The loop works one PR at a time.
    - None: `git switch main && git pull --ff-only`.
-3. **Clean tree.** `git status --short`. Leftovers on a branch with an open PR are
+4. **Clean tree.** `git status --short`. Leftovers on a branch with an open PR are
    yours from a crashed iteration: continue on that branch. Leftovers anywhere else:
    escalate (`invariant`). Never discard work you didn't make in this iteration.
 
@@ -113,7 +119,14 @@ Spawn `merge-gate` with the PR number. It verifies, merges, and returns **MERGED
 - MERGED: post its report as a PR comment, `git switch main && git pull --ff-only`,
   then print `AUTOPILOT-RESULT: merged #<n>`.
 - REFUSED: fix the findings (step 6), then spawn it again.
-- ESCALATE: escalate with its reason.
+- ESCALATE `guardrail`: the PR changes a guardrail, and only the owner's approving
+  review on the head commit lets it merge. Request it with
+  `gh pr edit <n> --add-reviewer <owner>`, then post a PR comment listing the guardrail
+  files, what each change does, and the security-reviewer's verdict. Call
+  `PushNotification` if available, and print `AUTOPILOT-RESULT: awaiting-approval #<n>`.
+  The driver waits for the approval, then the next iteration resumes here. Never approve,
+  and never ask for an approval anywhere but the review request.
+- ESCALATE, any other type: escalate with its reason.
 
 ## Retry budget
 
@@ -132,12 +145,28 @@ failure past any budget escalates (`budget`) with what was tried.
 3. Call `PushNotification` (load it via ToolSearch) with the issue title, if available.
 4. Print `AUTOPILOT-RESULT: escalated #<issue>` and stop.
 
-Escalation types: `human-action`, `decision`, `guardrail` (needs `human-approved`),
-`security`, `budget`, `infrastructure`, `invariant`.
+Escalation types: `human-action`, `decision`, `security`, `budget`, `infrastructure`,
+`invariant`. A `guardrail` change uses the review request in step 7 instead of an issue.
+
+## Keys and live calls
+
+Every key is in `.env`, which you never read. Before a step that needs one, run
+`python3 scripts/preflight.py`. If the key isn't set, escalate (`human-action`) with the
+§12 step that provides it. A live call runs only as one of the allowlisted commands
+(`uv run --env-file .env python scripts/smoke_llm.py`, `uv run --frozen --env-file .env
+fieldtest run|compare …`); the bash policy blocks any other use of `--env-file .env`.
+
+## Identity
+
+Under `scripts/autopilot.sh`, every `gh` and `git` call acts as the loop's GitHub App, and
+commits are authored by it. Never change that: no `GH_TOKEN`, `GH_CONFIG_DIR` or credential
+overrides, no `gh auth` login or switch (the bash policy blocks them).
 
 ## The result line
 
 Every iteration ends with exactly one line, the last thing printed:
-`AUTOPILOT-RESULT: merged #<pr>` · `AUTOPILOT-RESULT: escalated #<issue>` ·
-`AUTOPILOT-RESULT: blocked #<issue>` · `AUTOPILOT-RESULT: done`.
-`scripts/autopilot.sh` continues only after `merged`.
+`AUTOPILOT-RESULT: merged #<pr>` · `AUTOPILOT-RESULT: awaiting-approval #<pr>` ·
+`AUTOPILOT-RESULT: escalated #<issue>` · `AUTOPILOT-RESULT: blocked #<issue>` ·
+`AUTOPILOT-RESULT: done`. `scripts/autopilot.sh` continues after `merged`. After
+`awaiting-approval`, `escalated` or `blocked` it waits for the human (an approval, a closed
+issue) and then continues; after `done` it stops.

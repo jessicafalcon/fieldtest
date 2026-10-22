@@ -15,7 +15,7 @@ Brief step: Phase N, "<step>" or none · Decision: `docs/adr/NNNN-….md` or non
 - **Determinism:** none | a new input to a hash, cache key or manifest
 - **Evaluation:** none | a change to gold, scorers, outcomes or the recommendation rule, and its ADR
 - **Security and privacy:** none | a new dependency, permission, input surface, or what now reaches disk, a model or the repo
-- **Guardrails:** none | which guardrail files change (needs `human-approved`)
+- **Guardrails:** none | which guardrail files change (needs the owner's approving review on the head commit)
 - **Compatibility:** none | a `schema_version`, config key or artifact shape a consumer must handle
 
 ## Validation

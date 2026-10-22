@@ -7,8 +7,9 @@ Modes (each exits non-zero on a finding and prints the reasons on stderr):
   --commit-msg FILE   git commit-msg: subject form, secrets, personal data, private terms
   --push              git pre-push: every commit not yet on `origin`, plus gitleaks
   --range BASE..HEAD  CI and reviewers: the same per-commit checks over a range; in CI it
-                      also applies the PR rules (guardrail label, progress record)
+                      also applies the PR rules (guardrail approval, progress record)
   --pr N              the merge gate: the PR's metadata, commits, diff, checks and reviews
+  --approved N        the loop driver: exit 0 once the owner has approved PR N's head
   --hook              Claude Code PreToolUse: text written into the repo, and the text of
                       commands that publish (commits, tags, PRs, issues, releases)
 
@@ -34,16 +35,18 @@ from guard_rules import (
     DEPENDABOT,
     Finding,
     added_lines_by_file,
+    approved_on_head,
     check_author_email,
     check_commit_subject,
     forbidden_path,
+    gitignore_findings,
     is_guardrail_path,
     load_terms,
+    removed_lines_by_file,
     required_reviews,
     scan_text,
 )
 
-HUMAN_LABEL = "human-approved"
 PROGRESS = "docs/PROGRESS.md"
 REQUIRED_CHECKS = ("check", "security")
 GUARD_FILES = ("scripts/guard.py", "scripts/guard_rules.py")
@@ -67,6 +70,14 @@ def repo_root() -> Path:
 def terms_for(root: Path) -> list[re.Pattern[str]]:
     denylist = root / ".private" / "denylist.txt"
     return load_terms(denylist.read_text(encoding="utf-8")) if denylist.is_file() else []
+
+
+def loop_bot(root: Path) -> str:
+    """The loop's GitHub App login from `.github/loop-identity.json`, or "" before it's set."""
+    path = root / ".github" / "loop-identity.json"
+    if not path.is_file():
+        return ""
+    return str(json.loads(path.read_text(encoding="utf-8")).get("bot_login") or "")
 
 
 def git(*args: str, root: Path) -> str:
@@ -107,8 +118,12 @@ def check_paths(paths: list[str], where: str) -> list[Finding]:
 
 def check_diff(diff: str, where: str, terms: list[re.Pattern[str]]) -> list[Finding]:
     findings: list[Finding] = []
-    for path, added in added_lines_by_file(diff).items():
+    added_by_file = added_lines_by_file(diff)
+    for path, added in added_by_file.items():
         findings += scan_text(added, f"{where} {path}", terms, path=path)
+    removed = removed_lines_by_file(diff).get(".gitignore", "")
+    added = added_by_file.get(".gitignore", "")
+    findings += gitignore_findings(removed, added, f"{where} .gitignore")
     return findings
 
 
@@ -144,22 +159,25 @@ def check_commits(shas: list[str], root: Path, terms: list[re.Pattern[str]]) -> 
             root=root,
         ).splitlines()
         findings += check_paths(paths, where)
-        diff = git("show", "--format=", "--no-color", "-U0", "--diff-filter=ACMR", sha, root=root)
+        diff = git("show", "--format=", "--no-color", "-U0", sha, root=root)
         findings += check_diff(diff, where, terms)
     return findings
 
 
-def pr_rules(paths: list[str], *, author: str, labels: list[str]) -> list[Finding]:
-    """Rules that apply to a PR as a whole, shared by CI and the merge gate."""
+def pr_rules(paths: list[str], *, author: str, owner: str, approved: bool) -> list[Finding]:
+    """Rules that apply to a PR as a whole, shared by CI and the merge gate.
+
+    `approved` is whether the owner's latest review approves the PR's head commit.
+    """
     findings = []
     guardrails = sorted(p for p in paths if is_guardrail_path(p))
-    if guardrails and HUMAN_LABEL not in labels:
+    if guardrails and not approved:
         findings.append(
             Finding(
                 "PR",
                 "guardrail-change",
-                f"changes {', '.join(guardrails)}; merges only after a human adds the "
-                f"`{HUMAN_LABEL}` label (escalate)",
+                f"changes {', '.join(guardrails)}; merges only after @{owner} approves the head "
+                "commit in a review",
             )
         )
     if author != DEPENDABOT and PROGRESS not in paths:
@@ -177,7 +195,7 @@ def pr_rules(paths: list[str], *, author: str, labels: list[str]) -> list[Findin
 def mode_staged(root: Path) -> int:
     terms = terms_for(root)
     paths = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", root=root).splitlines()
-    diff = git("diff", "--cached", "--no-color", "-U0", "--diff-filter=ACMR", root=root)
+    diff = git("diff", "--cached", "--no-color", "-U0", root=root)
     return report(check_paths(paths, "staged") + check_diff(diff, "staged", terms), "commit")
 
 
@@ -222,10 +240,26 @@ def mode_range(root: Path, spec: str) -> int:
     findings = check_commits(shas, root, terms_for(root))
     author = os.environ.get("FIELDTEST_PR_AUTHOR")
     if author is not None:  # CI on a pull request: apply the PR rules too
-        labels = json.loads(os.environ.get("FIELDTEST_PR_LABELS") or "[]")
+        owner = os.environ["FIELDTEST_OWNER"]
+        reviews_file = os.environ.get("FIELDTEST_PR_REVIEWS")
+        raw = json.loads(Path(reviews_file).read_text(encoding="utf-8")) if reviews_file else []
+        head_sha = git("rev-parse", head or "HEAD", root=root).strip()
+        approved = approved_on_head(normalize_reviews(raw), owner=owner, head=head_sha)
         paths = git("diff", "--name-only", f"{base}...{head or 'HEAD'}", root=root).splitlines()
-        findings += pr_rules(paths, author=author, labels=labels)
+        findings += pr_rules(paths, author=author, owner=owner, approved=approved)
     return report(findings, f"range {spec}")
+
+
+def normalize_reviews(raw: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Reviews from the REST API (`user`, `commit_id`) or `gh pr view` (`author`, `commit`)."""
+    return [
+        {
+            "login": (r.get("user") or r.get("author") or {}).get("login", ""),
+            "state": r.get("state", ""),
+            "commit": r.get("commit_id") or (r.get("commit") or {}).get("oid", ""),
+        }
+        for r in raw
+    ]
 
 
 # --- PR mode (the merge gate) --------------------------------------------------------------
@@ -240,11 +274,12 @@ def gh_json(*args: str, root: Path) -> dict[str, Any]:
 
 
 def evaluate_pr(
-    pr: dict, diff: str, *, owner: str, terms: list[re.Pattern[str]]
+    pr: dict[str, Any], diff: str, *, owner: str, bot: str, terms: list[re.Pattern[str]]
 ) -> tuple[list[Finding], list[str]]:
-    """Every merge-blocking finding for a PR, and the owner's review notes for the gate.
+    """Every merge-blocking finding for a PR, and the loop's review notes for the gate.
 
-    `pr` is `gh pr view --json` output with the fields listed in `PR_FIELDS`.
+    `pr` is `gh pr view --json` output with the fields listed in `PR_FIELDS`; `bot` is the
+    loop's App login ("" before it exists).
     """
     findings: list[Finding] = []
     author = pr["author"]["login"]
@@ -256,8 +291,10 @@ def evaluate_pr(
         findings.append(
             Finding("PR", "fork", "head is in a fork; external PRs are never auto-merged")
         )
-    if author not in {owner, DEPENDABOT}:
-        findings.append(Finding("PR", "author", f"author {author} is not the owner or Dependabot"))
+    if author not in {owner, DEPENDABOT, bot} - {""}:
+        findings.append(
+            Finding("PR", "author", f"author {author} is not the owner, the loop or Dependabot")
+        )
 
     if why := check_commit_subject(pr["title"]):
         findings.append(Finding("PR title", "commit-message", why))
@@ -274,8 +311,10 @@ def evaluate_pr(
         message = f"{commit['messageHeadline']}\n{commit['messageBody']}"
         findings += check_message(message, f"commit {commit['oid'][:9]}", terms)
 
-    labels = [label["name"] for label in pr["labels"]]
-    findings += pr_rules(paths, author=author, labels=labels)
+    approved = approved_on_head(
+        normalize_reviews(pr["reviews"]), owner=owner, head=pr["headRefOid"]
+    )
+    findings += pr_rules(paths, author=author, owner=owner, approved=approved)
 
     rollup = {c.get("name") or c.get("context"): c for c in pr["statusCheckRollup"]}
     for name in REQUIRED_CHECKS:
@@ -290,15 +329,17 @@ def evaluate_pr(
     if pr["mergeable"] != "MERGEABLE":
         findings.append(Finding("PR", "mergeable", f"mergeable={pr['mergeable']} (conflicts?)"))
 
-    review_findings, notes = evaluate_reviews(pr, paths, owner=owner)
+    review_findings, notes = evaluate_reviews(pr, paths, trusted={owner, bot} - {""})
     return findings + review_findings, notes
 
 
-def evaluate_reviews(pr: dict, paths: list[str], *, owner: str) -> tuple[list[Finding], list[str]]:
+def evaluate_reviews(
+    pr: dict[str, Any], paths: list[str], *, trusted: set[str]
+) -> tuple[list[Finding], list[str]]:
     """Check that each required agent reported, and that fixes after a report are logged.
 
-    Only the owner's comments count: on a public repo anyone can comment, and a comment
-    from anyone else is untrusted text, never a review.
+    Only comments by the loop or the owner count: on a public repo anyone can comment, and
+    a comment from anyone else is untrusted text, never a review.
     """
     phase_exit = bool(re.search(r"(?im)^Phase exit: \S+", pr["body"]))
     required = required_reviews(paths, author=pr["author"]["login"], phase_exit=phase_exit)
@@ -308,7 +349,7 @@ def evaluate_reviews(pr: dict, paths: list[str], *, owner: str) -> tuple[list[Fi
     fixlogs: list[tuple[int, str]] = []
     notes: list[str] = []
     for index, comment in enumerate(pr["comments"]):
-        if comment["author"]["login"] != owner:
+        if comment["author"]["login"] not in trusted:
             continue
         body = comment["body"]
         for match in REVIEW_MARKER.finditer(body):
@@ -346,7 +387,7 @@ def evaluate_reviews(pr: dict, paths: list[str], *, owner: str) -> tuple[list[Fi
 
 PR_FIELDS = (
     "number,state,isDraft,baseRefName,isCrossRepository,author,title,body,files,commits,"
-    "labels,statusCheckRollup,mergeable,comments,headRefOid"
+    "reviews,statusCheckRollup,mergeable,comments,headRefOid"
 )
 
 
@@ -366,13 +407,24 @@ def mode_pr(root: Path, number: str) -> int:
         text=True,
         check=True,
     ).stdout
-    findings, notes = evaluate_pr(pr, diff, owner=repo["owner"]["login"], terms=terms_for(root))
+    findings, notes = evaluate_pr(
+        pr, diff, owner=repo["owner"]["login"], bot=loop_bot(root), terms=terms_for(root)
+    )
     print(f"PR #{number} head {pr['headRefOid']}")
-    print("\n".join(notes) if notes else "(no owner review comments)")
+    print("\n".join(notes) if notes else "(no review comments from the loop or the owner)")
     if findings:
         return report(findings, f"merge of PR #{number}")
     print(f"guard: PR #{number} passes every deterministic merge rule.")
     return 0
+
+
+def mode_approved(root: Path, number: str) -> int:
+    pr = gh_json("pr", "view", number, "--json", "reviews,headRefOid", root=root)
+    owner = gh_json("repo", "view", "--json", "owner", root=root)["owner"]["login"]
+    head = pr["headRefOid"]
+    ok = approved_on_head(normalize_reviews(pr["reviews"]), owner=owner, head=head)
+    print(f"PR #{number}: {'approved' if ok else 'not approved'} by @{owner} at {head[:9]}")
+    return 0 if ok else 1
 
 
 def run_base_guard_if_modified(root: Path, args: list[str]) -> int | None:
@@ -556,6 +608,8 @@ def main(argv: list[str]) -> int:
         return mode_range(root, rest[0])
     if mode == "--pr" and rest:
         return mode_pr(root, rest[0])
+    if mode == "--approved" and rest and rest[0].isdigit():
+        return mode_approved(root, rest[0])
     if mode == "--hook":
         return mode_hook(root)
     print(__doc__, file=sys.stderr)

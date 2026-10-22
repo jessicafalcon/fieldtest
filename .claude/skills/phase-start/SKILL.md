@@ -35,8 +35,11 @@ file and the arbiter's rulings, not code.
 4. **Risks.** What could make an acceptance criterion unreachable, and the cheapest
    early PR that would show it.
 5. **Human-only steps.** Anything the loop cannot do (brief "Manual step (human)",
-   credentials, console settings). Each becomes an escalation at the point it's needed,
-   with exact instructions, never a reason to stall the phase earlier.
+   credentials, console settings). Each must already be in the brief's §12 prerequisites.
+   A new one goes into §12 in the phase's first PR, and `scripts/preflight.py` gains its
+   check. Run `python3 scripts/preflight.py` now: a prerequisite this phase needs that
+   isn't met is escalated at once (`human-action`), so the human can act while the loop
+   builds what doesn't depend on it.
 
 ## Then
 

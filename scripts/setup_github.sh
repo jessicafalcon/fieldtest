@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # One-time, human-run setup of the public GitHub repo: create it, push `main`, and turn
-# on every server-side control the loop relies on (ADR 0001, ADR 0002). Idempotent: a
-# second run re-applies the settings. Needs `gh auth login` with the `repo` scope.
+# on every server-side control the loop relies on (ADRs 0001–0003). Idempotent: a second
+# run re-applies the settings. Run it as yourself (`gh auth login`, `repo` and `workflow`
+# scopes), never under the loop's identity. Then install the loop's GitHub App on the
+# repo (PROJECT-BRIEF.md §12, step 4).
 #
 # Usage: scripts/setup_github.sh OWNER/REPO
 #
@@ -17,11 +19,19 @@ say() { printf '\n== %s\n' "$*"; }
 try() { "$@" >/dev/null || echo "   (not applied: $*; set it in the repo settings by hand)"; }
 
 say "Repository"
+# The description opens with the question the tool answers. Keep in sync with the README.
+description="Is an LLM good enough for your document task, which one, and at what cost? \
+fieldtest runs your labeled documents through several models and reports accuracy, unsafe \
+errors, cost per 1,000 documents and whether it can be self-hosted, reproducibly."
+topics=(llm llm-evaluation model-selection document-extraction information-extraction
+  structured-output evaluation reproducibility record-replay mistral ollama self-hosted
+  python claude-code)
 if ! gh repo view "$repo" >/dev/null 2>&1; then
-  gh repo create "$repo" --public --source . --remote origin \
-    --description "Use-case readiness reports for LLM document workflows."
+  gh repo create "$repo" --public --source . --remote origin --description "$description"
 fi
 git remote get-url origin >/dev/null 2>&1 || git remote add origin "https://github.com/$repo.git"
+gh repo edit "$repo" --description "$description"
+for topic in "${topics[@]}"; do gh repo edit "$repo" --add-topic "$topic" >/dev/null; done
 
 say "Push main (the one direct push; every later change arrives by PR)"
 git push -u origin main
@@ -63,11 +73,9 @@ try gh api -X PUT "repos/$repo/actions/permissions/selected-actions" --input - <
 {"github_owned_allowed": true, "verified_allowed": false, "patterns_allowed": ["astral-sh/setup-uv@*"]}
 JSON
 
-say "Labels the loop uses"
+say "The label the loop uses to call you"
 gh label create needs-human --repo "$repo" --color B60205 --force \
   --description "The autonomous loop stopped: a human must act (see the issue)"
-gh label create human-approved --repo "$repo" --color 0E8A16 --force \
-  --description "Applied by a human only: approves a guardrail change"
 
 say "Ruleset on main: PR only, squash, linear, no force push or deletion, CI must pass"
 # integration_id 15368 is GitHub Actions, so only a real CI run can satisfy the checks.
@@ -107,4 +115,5 @@ else
   gh api -X POST "repos/$repo/rulesets" --silent --input - <<<"$ruleset"
 fi
 
-say "Done. Verify: gh api repos/$repo/rulesets; gh repo view $repo --json visibility"
+say "Done. Verify: gh api repos/$repo/rulesets; gh repo view $repo --json visibility,description"
+echo "Next: install the loop's GitHub App on $repo (PROJECT-BRIEF.md §12, step 4)."

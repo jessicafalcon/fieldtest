@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import subprocess
 
-from guard_rules import forbidden_path, scan_text
+from guard_rules import forbidden_path, missing_ignores, scan_text
 
 from tests.conftest import ROOT
 
@@ -43,3 +43,7 @@ def test_private_paths_are_gitignored() -> None:
         check=False,
     )
     assert sorted(result.stdout.split()) == sorted(probes)
+
+
+def test_gitignore_keeps_every_required_line() -> None:
+    assert missing_ignores((ROOT / ".gitignore").read_text(encoding="utf-8")) == []

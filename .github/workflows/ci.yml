@@ -4,21 +4,26 @@ on:
   push:
     branches: [main]
   pull_request:
-    # `labeled` and `unlabeled` re-run the guard when a human adds `human-approved`.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+  # The owner's review on a guardrail PR re-runs the `security` job, whose guard checks
+  # that the approval is on the head commit (ADR 0003).
+  pull_request_review:
+    types: [submitted, dismissed]
 
 # Read-only token and no secrets: an accidental live model call fails for lack of a key,
 # and pytest blocks sockets on top of that. Fork PRs run with the same empty context.
 permissions:
   contents: read
 
+# A review event must not cancel the push event's run on the same ref.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   # Required by the `main` ruleset (scripts/setup_github.sh). Keep the job names in sync
   # with REQUIRED_CHECKS in scripts/guard.py.
+  # Never skip a required job with `if:`: GitHub counts a skipped job as passing, so a
+  # skipped run on a review event would mask a failed one on the same commit.
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -47,6 +52,9 @@ jobs:
   security:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # the PR's reviews, for the guardrail approval
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,13 +81,17 @@ jobs:
       # Judge the PR with main's guard, so a PR that weakens the guard is judged by the
       # rules it would replace. The first PR, before main has a guard, uses its own.
       - name: Guard the PR's commits and rules
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           FIELDTEST_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          FIELDTEST_PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          FIELDTEST_OWNER: ${{ github.repository_owner }}
+          FIELDTEST_PR_REVIEWS: ${{ runner.temp }}/reviews.json
+          GH_TOKEN: ${{ github.token }}
         run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" > "$FIELDTEST_PR_REVIEWS"
           guard=scripts/guard.py
           if git cat-file -e "$BASE_SHA:scripts/guard.py" 2>/dev/null; then
             mkdir -p "$RUNNER_TEMP/base-guard"

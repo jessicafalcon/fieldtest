@@ -6,13 +6,16 @@
 - The merge gate: the same, plus the exact commands that run the PR guard, watch checks
   and squash-merge one pinned head commit.
 - Every other session: no hook bypass, no force push, no push to `main` or to another
-  remote, no merge, no mutating `gh api` or repo-settings call, no `human-approved`
-  label, no secret reads, and the git hooks installed before any commit or push.
+  remote, no merge, no PR approval, no mutating `gh api` or repo-settings call, no change
+  to the GitHub identity the driver set, no secret reads, no shell write to `.gitignore`,
+  `--env-file .env` only for the allowlisted live commands, and the git hooks installed
+  before any commit or push.
 
 The role is the payload's `agent_type`, or `--as NAME` from an agent's frontmatter
 registration (a backup: Claude Code skips frontmatter hooks in an untrusted folder).
-These rules stop accidents and injected instructions, not a deliberate adversary using
-the same GitHub identity; the server-side ruleset is the hard boundary (ADR 0001).
+These rules stop accidents and injected instructions. The hard boundaries are elsewhere:
+the GitHub App identity, which can't approve its own PRs or change settings (ADR 0003),
+and the server-side ruleset (ADR 0001).
 Any crash exits 2, so a broken policy blocks instead of allowing.
 """
 
@@ -37,14 +40,14 @@ READ_ONLY_AGENTS = {
     "plan-arbiter",
 }
 MERGE_GATE = "merge-gate"
-HUMAN_LABEL = "human-approved"
 
 READ_ONLY = re.compile(
     r"^("
     r"uv run --frozen (--no-sync )?(pytest|mypy)( .*)?"
     r"|uv run --frozen (--no-sync )?ruff (check|format --check)( .*)?"
     r"|make (check|lint|typecheck|test|records)"
-    r"|python3 scripts/guard\.py --range \S+"
+    r"|python3 scripts/guard\.py (--range \S+|--approved \d+)"
+    r"|python3 scripts/preflight\.py( --all)?"
     r"|python3 scripts/check_records\.py"
     r"|python3 \.claude/hooks/determinism_guard\.py( .*)?"
     r"|git (diff|log|show|status|merge-base|rev-parse|ls-files|blame|grep|branch --show-current)( .*)?"
@@ -127,6 +130,42 @@ def allowed_for_agent(command: str, role: str) -> bool:
 # mentions `git push --force` is not a push), so it is removed before parsing.
 HEREDOC = re.compile(r"""(<<-?\s*(['"]?)(\w+)\2)([^\n]*)\n.*?^\t*\3$""", re.DOTALL | re.MULTILINE)
 BYPASS_ENV = {"SKIP", "PRE_COMMIT_ALLOW_NO_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"}
+# The driver sets the loop's GitHub identity (scripts/autopilot.sh); a command that
+# overrides it would fall back to another credential on the machine.
+IDENTITY_ENV = {
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_CONFIG_DIR",
+    "GH_HOST",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GIT_ASKPASS",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+}
+# The only commands that may load `.env`: the live calls the brief plans. Each one reads
+# the one key it needs through its SDK. Keep in sync with PROJECT-BRIEF.md §12.
+ENV_FILE_COMMANDS = re.compile(
+    r"^uv run (--frozen )?--env-file \.env (python scripts/smoke_llm\.py|fieldtest (run|compare)\b)"
+)
+GITIGNORE_WRITERS = {
+    "sed",
+    "perl",
+    "tee",
+    "mv",
+    "cp",
+    "rm",
+    "truncate",
+    "dd",
+    "ed",
+    "ex",
+    "awk",
+    "python",
+    "python3",
+    "ln",
+    "install",
+    "chmod",
+}
 SECRET_VAR = re.compile(r"\$\{?[A-Z0-9_]*(API_KEY|TOKEN|SECRET|PASSWORD)\b")
 SHELLS = {"bash", "sh", "zsh", "eval"}
 COMMIT_VALUE_FLAGS = set("mFCctS")  # short flags of `git commit` that take a value
@@ -181,10 +220,18 @@ def _targets_main(args: list[str]) -> bool:
 
 def violations(words: list[str], role: str, cwd: Path) -> list[str]:
     """Why one simple command is not allowed for a general session, or []."""
-    found = secret_reads(words)
+    found = secret_reads(words) + gitignore_writes(words)
     stripped, env_names = _strip_env(words)
     if bypass := env_names & BYPASS_ENV:
         return [*found, f"{', '.join(sorted(bypass))}= skips or rewires the git hooks"]
+    if identity := env_names & IDENTITY_ENV:
+        found.append(f"{', '.join(sorted(identity))}= changes the GitHub identity the driver set")
+    if stripped[:1] == ["unset"] and set(stripped[1:]) & IDENTITY_ENV:
+        found.append("unsetting the loop's identity would fall back to another credential")
+    if words[:1] == ["env"] and any(w in {"-u", "--unset"} or w.startswith("-u") for w in words):
+        found.append("unsetting the loop's identity would fall back to another credential")
+    if any(Path(w).name == "loop_auth.py" for w in stripped):
+        found.append("scripts/loop_auth.py is the driver's; sessions never mint tokens")
     if not stripped:
         if words[:1] == ["env"]:
             found.append("printing the environment can expose secrets")
@@ -210,6 +257,10 @@ def _git_violations(words: list[str], cwd: Path) -> list[str]:
         return ["core.hooksPath rewires the git hooks"]
     if sub == "config" and any("hookspath" in a.lower() for a in args):
         return ["core.hooksPath rewires the git hooks"]
+    if any(c.lower().startswith("credential") for c in configs) or (
+        sub == "config" and any(a.lower().startswith("credential") for a in args)
+    ):
+        return ["git credentials are set by the driver (the loop's App identity)"]
     if sub == "remote" and args[:1] and args[0] in {"add", "set-url", "rename", "remove", "rm"}:
         return ["remotes are fixed: fieldtest pushes only to origin"]
     found = []
@@ -254,14 +305,18 @@ def _gh_violations(words: list[str], role: str) -> list[str]:
     group, action = [*args, "", ""][:2]
     if (group, action) == ("pr", "merge") and role != MERGE_GATE:
         return ["only the merge-gate agent merges, after its checks (CLAUDE.md, the PR loop)"]
-    if group in {"pr", "issue"} and action == "edit" and any(HUMAN_LABEL in a for a in args):
-        return [f"`{HUMAN_LABEL}` is applied by a human only"]
+    if (group, action) == ("pr", "review") and any(
+        a in {"--approve", "-a"} or _short_bundle_has(a, "a") for a in args[2:]
+    ):
+        return ["approving a PR is the human's decision (a guardrail change needs it)"]
     if group == "repo" and action in {"create", "delete", "edit", "rename", "archive", "unarchive"}:
         return ["repository settings are human-owned (scripts/setup_github.sh)"]
     if group in {"secret", "variable", "ruleset"} and action not in {"list", "view", ""}:
         return ["secrets, variables and rulesets are human-owned"]
-    if group == "auth" and (action == "token" or "--show-token" in args):
+    if group == "auth" and (action == "token" or "--show-token" in args or "-t" in args):
         return ["printing the GitHub token exposes it"]
+    if group == "auth" and action in {"login", "logout", "switch", "refresh", "setup-git"}:
+        return ["the GitHub identity is set by the driver (scripts/autopilot.sh)"]
     if (group, action) in {
         ("release", "delete"),
         ("issue", "delete"),
@@ -340,17 +395,38 @@ def secret_reads(words: list[str]) -> list[str]:
     found = []
     for i, word in enumerate(words):
         name = word.rstrip("/").rsplit("/", 1)[-1]
-        if (
-            re.fullmatch(r"\.env(\.[\w-]+)?", name)
-            and name != ".env.example"
-            and not (i > 0 and words[i - 1] == "--env-file")
-        ):
-            found.append(".env is read only by `uv run --env-file .env`; never print or copy it")
+        if re.fullmatch(r"\.env(\.[\w-]+)?", name) and name != ".env.example":
+            loads = i > 0 and words[i - 1] == "--env-file"
+            if not loads:
+                found.append(".env is never printed, copied, moved or edited from the shell")
+            elif not ENV_FILE_COMMANDS.match(" ".join(words)):
+                found.append(
+                    "`--env-file .env` only for the smoke call and `fieldtest run|compare` "
+                    "(PROJECT-BRIEF.md §12)"
+                )
+        if word.startswith("--env-file=") and word.partition("=")[2].endswith(".env"):
+            found.append("use `--env-file .env` as two words, with an allowlisted command")
+        if ".autopilot/gh" in word:
+            found.append(".autopilot/gh/ holds the loop's token; never read it")
         if word == ".private" or word.startswith(".private/") or "/.private" in word:
             found.append(".private/ is the human's; Claude never reads it by hand")
         if SECRET_VAR.search(word):
             found.append("expanding a secret variable can print it")
     return found
+
+
+def gitignore_writes(words: list[str]) -> list[str]:
+    """A shell command that could rewrite `.gitignore` (edits go through Edit/Write, where
+    protect_files.py keeps its required lines)."""
+    names = [Path(w).name for w in words]
+    if ".gitignore" not in names:
+        return []
+    head = Path(words[0]).name if words else ""
+    redirected = any(w in {">", ">>"} for w in words)
+    git_rewrite = head == "git" and any(w in {"checkout", "restore", "rm", "mv"} for w in words)
+    if head in GITIGNORE_WRITERS or redirected or git_rewrite:
+        return ["`.gitignore` changes only through Edit/Write, which keep its secret lines"]
+    return []
 
 
 def check(command: str, role: str, cwd: Path) -> list[str]:

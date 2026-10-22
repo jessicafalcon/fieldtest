@@ -11,8 +11,14 @@ never merges a PR from a fork. A maintainer reviews outside contributions by han
 
 ## What fieldtest handles
 
-- **One API key** (`MISTRAL_API_KEY`), read from the environment by the provider SDK. It
-  lives in a local, gitignored `.env`; CI has no key and runs in replay mode.
+- **Keys in one place.** The model key (`MISTRAL_API_KEY`) and the loop's GitHub App keys
+  live only in a local, gitignored `.env`. The `.gitignore` lines that keep it out can't
+  be removed by any edit, commit, push or merge. Claude Code never reads it, and CI has
+  no key and runs in replay mode.
+- **A separate identity for the autonomous loop.** It acts as a GitHub App without
+  administration rights, using one-hour tokens. It can't change settings, and it can't
+  approve its own PRs, so a change to the guardrails merges only after the owner's review
+  (ADR 0003).
 - **Public documents only** (French public tender notices from open data). Each dataset's
   source and licence are in its `data/<name>/DATASET.md`.
 - **No user data and no network service** before Phase 5. The Phase 5 API binds to
@@ -27,6 +33,7 @@ machine:
 | Rule | Blocks |
 |---|---|
 | Private paths | `.private/`, `.env` and `.env.*` (not `.env.example`), `CLAUDE.local.md`, key and credential files |
+| Ignore lines | Removing a `.gitignore` line for `.env`, `.env.*`, `!.env.example`, `.private/`, `CLAUDE.local.md` or `.autopilot/` |
 | Secrets | Private key blocks, `sk-` keys, GitHub, AWS, Google, Slack and Hugging Face tokens, JWTs, secret-named assignments of long literals; plus gitleaks |
 | Personal data | Absolute home-directory paths; email addresses other than noreply and `example.com` (public source documents under `data/` excepted) |
 | Private terms | Any term in the local, gitignored `.private/denylist.txt` |
@@ -45,7 +52,8 @@ Where it runs:
    it's judged by, and `pip-audit` over the locked dependencies. The `check` job runs
    zizmor over the workflows.
 5. **At merge:** `scripts/guard.py --pr` checks the PR's title, body, diff, commits,
-   checks and reviews, and refuses PRs from forks.
+   checks and reviews, refuses PRs from forks, and refuses a guardrail change without the
+   owner's approving review of its head commit.
 6. **On GitHub:** secret scanning with push protection, Dependabot alerts and updates,
    private vulnerability reporting, and a `main` ruleset (PR only, squash only, the
    `check` and `security` checks from GitHub Actions, no force push, no bypass).

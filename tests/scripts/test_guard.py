@@ -116,12 +116,43 @@ def test_ci_range_applies_the_pr_rules(repo: Path) -> None:
     (repo / ".github" / "workflows" / "ci.yml").write_text("name: ci\n")
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "ci: add ci")
-    ci = {"FIELDTEST_PR_AUTHOR": "tester", "FIELDTEST_PR_LABELS": "[]"}
-    result = run_guard(repo, "--range", f"{base}..HEAD", env=ci)
-    assert result.returncode == 1
-    assert "[guardrail-change]" in result.stderr
-    approved = {**ci, "FIELDTEST_PR_LABELS": '["human-approved"]'}
-    assert run_guard(repo, "--range", f"{base}..HEAD", env=approved).returncode == 0
+    head = git(repo, "rev-parse", "HEAD").strip()
+    reviews = repo.parent / "reviews.json"
+
+    def ci(*review: tuple[str, str, str]) -> subprocess.CompletedProcess[str]:
+        rest = [{"user": {"login": u}, "state": st, "commit_id": c} for u, st, c in review]
+        reviews.write_text(json.dumps(rest))
+        env = {
+            "FIELDTEST_PR_AUTHOR": "loop[bot]",
+            "FIELDTEST_OWNER": "owner",
+            "FIELDTEST_PR_REVIEWS": str(reviews),
+        }
+        return run_guard(repo, "--range", f"{base}..HEAD", env=env)
+
+    unapproved = ci()
+    assert unapproved.returncode == 1
+    assert "[guardrail-change]" in unapproved.stderr
+    assert ci(("loop[bot]", "APPROVED", head)).returncode == 1  # only the owner approves
+    assert ci(("owner", "APPROVED", "0" * 40)).returncode == 1  # an older commit
+    assert ci(("owner", "APPROVED", head)).returncode == 0
+
+
+def test_removing_a_required_gitignore_line_is_blocked_in_every_mode(repo: Path) -> None:
+    (repo / ".gitignore").write_text(
+        ".env\n.env.*\n!.env.example\n.private/\nCLAUDE.local.md\n.autopilot/\n"
+    )
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-q", "-m", "chore: ignore secrets")
+    base = git(repo, "rev-parse", "HEAD").strip()
+    (repo / ".gitignore").write_text(".private/\nCLAUDE.local.md\n.autopilot/\nruns/\n")
+    git(repo, "add", ".gitignore")
+    staged = run_guard(repo, "--staged")
+    assert staged.returncode == 1
+    assert "[gitignore]" in staged.stderr
+    git(repo, "commit", "-q", "-m", "chore: tidy ignores")
+    assert run_guard(repo, "--range", f"{base}..HEAD").returncode == 1
+    git(repo, "rm", "-q", ".gitignore")  # deleting the file removes every line
+    assert run_guard(repo, "--staged").returncode == 1
 
 
 # --- Hook mode ------------------------------------------------------------------------------
@@ -198,6 +229,7 @@ def test_flag_values_reads_every_form() -> None:
 
 
 OWNER = "owner"
+BOT = "fieldtest-loop[bot]"
 HEAD = "b" * 40
 
 
@@ -220,7 +252,7 @@ def pr(**overrides: Any) -> dict[str, Any]:
                 "messageBody": "",
             }
         ],
-        "labels": [],
+        "reviews": [],
         "statusCheckRollup": [
             {"name": "check", "conclusion": "SUCCESS"},
             {"name": "security", "conclusion": "SUCCESS"},
@@ -246,7 +278,7 @@ def rules(found: list[Any]) -> set[str]:
 
 
 def test_a_clean_reviewed_green_pr_passes() -> None:
-    found, notes = evaluate_pr(pr(), "", owner=OWNER, terms=[])
+    found, notes = evaluate_pr(pr(), "", owner=OWNER, bot=BOT, terms=[])
     assert found == []
     assert len(notes) == 2
 
@@ -280,13 +312,13 @@ def test_a_clean_reviewed_green_pr_passes() -> None:
     ],
 )
 def test_each_merge_rule_blocks(overrides: dict[str, Any], rule: str) -> None:
-    found, _ = evaluate_pr(pr(**overrides), "", owner=OWNER, terms=[])
+    found, _ = evaluate_pr(pr(**overrides), "", owner=OWNER, bot=BOT, terms=[])
     assert rule in rules(found)
 
 
 def test_a_secret_in_the_diff_blocks() -> None:
     diff = f"+++ b/x.py\n@@ -0,0 +1 @@\n+K = '{FAKE_API_KEY}'\n"
-    found, _ = evaluate_pr(pr(), diff, owner=OWNER, terms=[])
+    found, _ = evaluate_pr(pr(), diff, owner=OWNER, bot=BOT, terms=[])
     assert "secret" in rules(found)
 
 
@@ -295,7 +327,7 @@ def test_reviews_from_anyone_but_the_owner_do_not_count() -> None:
         review("code-reviewer", "ready", HEAD, author="stranger"),
         review("security-reviewer", "ready", HEAD),
     ]
-    found, notes = evaluate_pr(pr(comments=comments), "", owner=OWNER, terms=[])
+    found, notes = evaluate_pr(pr(comments=comments), "", owner=OWNER, bot=BOT, terms=[])
     assert any("code-reviewer" in f.detail for f in found)
     assert len(notes) == 1  # the stranger's text never reaches the gate
 
@@ -320,26 +352,28 @@ def test_not_ready_blocks_and_fixes_after_a_review_need_a_fix_log() -> None:
         review("code-reviewer", "not-ready", HEAD),
         review("security-reviewer", "ready", HEAD),
     ]
-    found, _ = evaluate_pr(pr(commits=commits, comments=not_ready), "", owner=OWNER, terms=[])
+    found, _ = evaluate_pr(
+        pr(commits=commits, comments=not_ready), "", owner=OWNER, bot=BOT, terms=[]
+    )
     assert any("not-ready" in f.detail for f in found)
 
     stale = [
         review("code-reviewer", "ready-after-fixes", first),
         review("security-reviewer", "ready", HEAD),
     ]
-    found, _ = evaluate_pr(pr(commits=commits, comments=stale), "", owner=OWNER, terms=[])
+    found, _ = evaluate_pr(pr(commits=commits, comments=stale), "", owner=OWNER, bot=BOT, terms=[])
     assert any("fix log" in f.detail for f in found)
 
     fixlog = {"author": {"login": OWNER}, "body": f"<!-- fieldtest-fixlog sha={HEAD} -->\n1. fixed"}
     found, _ = evaluate_pr(
-        pr(commits=commits, comments=[*stale, fixlog]), "", owner=OWNER, terms=[]
+        pr(commits=commits, comments=[*stale, fixlog]), "", owner=OWNER, bot=BOT, terms=[]
     )
     assert found == []
 
 
 def test_docs_only_prs_need_the_coherence_auditor() -> None:
     files = [{"path": "README.md"}, {"path": "docs/PROGRESS.md"}]
-    found, _ = evaluate_pr(pr(files=files, comments=[]), "", owner=OWNER, terms=[])
+    found, _ = evaluate_pr(pr(files=files, comments=[]), "", owner=OWNER, bot=BOT, terms=[])
     assert {f.detail for f in found} == {"no report from `coherence-auditor`"}
 
 
@@ -351,6 +385,41 @@ def test_dependabot_prs_need_only_the_security_review_and_no_progress_record() -
         pr(author=bot, files=files, comments=comments, title="build(deps): bump x"),
         "",
         owner=OWNER,
+        bot=BOT,
         terms=[],
     )
     assert found == []
+
+
+def test_the_loop_authors_prs_and_its_review_comments_count() -> None:
+    loop = {"login": BOT}
+    comments = [
+        review("code-reviewer", "ready", HEAD, author=BOT),
+        review("security-reviewer", "ready", HEAD, author=BOT),
+    ]
+    found, notes = evaluate_pr(
+        pr(author=loop, comments=comments), "", owner=OWNER, bot=BOT, terms=[]
+    )
+    assert found == []
+    assert len(notes) == 2
+
+
+def test_a_guardrail_pr_merges_only_with_the_owners_approval_of_its_head() -> None:
+    files = [{"path": "scripts/guard.py"}, {"path": "docs/PROGRESS.md"}]
+
+    def rules_with(*reviews: tuple[str, str, str]) -> set[str]:
+        raw = [{"author": {"login": u}, "state": st, "commit": {"oid": c}} for u, st, c in reviews]
+        found, _ = evaluate_pr(
+            pr(author={"login": BOT}, files=files, reviews=raw), "", owner=OWNER, bot=BOT, terms=[]
+        )
+        return rules(found)
+
+    assert "guardrail-change" in rules_with()
+    assert "guardrail-change" in rules_with((BOT, "APPROVED", HEAD))
+    assert "guardrail-change" in rules_with((OWNER, "APPROVED", "a" * 40))
+    assert "guardrail-change" in rules_with(
+        (OWNER, "APPROVED", HEAD), (OWNER, "CHANGES_REQUESTED", HEAD)
+    )
+    assert "guardrail-change" not in rules_with(
+        (OWNER, "APPROVED", HEAD), (OWNER, "COMMENTED", HEAD)
+    )

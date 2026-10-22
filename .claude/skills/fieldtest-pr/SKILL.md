@@ -22,7 +22,7 @@ and split what doesn't. A phase is usually several PRs, merged in order.
 - Generated files (`uv.lock`, snapshots, a recorded cache) travel with the change that
   caused them, and the body says they're generated.
 - Guardrail files (CLAUDE.md → Guardrails) go in their own PR when possible, since that
-  PR waits for a human's `human-approved` label.
+  PR waits for the owner's approving review.
 
 Branch: `<type>/<slug>` (`feat/score-outcomes`, `fix/cache-atomic-write`).
 

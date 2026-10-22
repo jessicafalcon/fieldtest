@@ -1,7 +1,7 @@
 # Runs before each commit, on each commit message, and before each push; CI runs the
 # pre-commit stage over every file. Local tools run from the project venv
 # (`uv run --frozen`), so their versions come from uv.lock. A guardrail file: changing it
-# needs the `human-approved` label (CLAUDE.md, Guardrails).
+# needs the owner's approving review (CLAUDE.md, Guardrails).
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 default_stages: [pre-commit]
 

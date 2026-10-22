@@ -22,7 +22,7 @@ loosen by itself.
    approval. Independent read-only reviewers report on each PR. A merge gate that didn't
    build or review the PR verifies the evidence and is the only role allowed to merge.
    The GitHub ruleset and CI, running main's copy of the guard, enforce what no local
-   process can bypass, and a change to the guardrails waits for a human label.
+   process can bypass, and a change to the guardrails waits for the human's approval.
 
 ## Decision Outcome
 
@@ -37,17 +37,17 @@ hard limits where the loop can't reach them.
 - **Phase acceptance:** evidence, not opinion. Every criterion PASS with a test or
   command, from `test-reviewer`, `determinism-auditor` and `coherence-auditor`.
 - **Merge:** `merge-gate` runs `scripts/guard.py --pr`, which checks deterministically
-  that the PR is the owner's, from this repo, green on `check` and `security`, carries the
+  that the PR is the loop's or the owner's, from this repo, green on `check` and `security`, carries the
   required review reports (by changed paths) and a fix log after them, updates
   `docs/PROGRESS.md`, and holds no private path, secret or personal data. The agent then
   judges whether each blocker and major finding was really fixed, and merges with
   `--match-head-commit`, so what merges is exactly what it verified.
 - **Guardrails** (the list in CLAUDE.md and `GUARDRAIL_PATHS`): a PR that touches one
-  merges only after a human adds `human-approved`. The loop may propose a guardrail
-  change; it can't approve one.
-- **Escalation** is a `needs-human` issue with exact instructions. The driver
-  (`scripts/autopilot.sh`) stops while one is open, and a retry budget stops the loop
-  from spinning.
+  merges only after the owner's approving review of its head commit. The loop acts as its
+  own GitHub App (ADR 0003), so it may propose a guardrail change but can't approve one.
+- **Escalation** is a `needs-human` issue with exact instructions, or a review request on a
+  guardrail PR. The driver (`scripts/autopilot.sh`) waits until the human has acted, then
+  resumes. A retry budget stops the loop from spinning.
 
 ### Consequences
 
@@ -55,11 +55,9 @@ hard limits where the loop can't reach them.
   the few decisions that need it: credentials, money, goals, and the guardrails themselves.
 - Good, because every review, fix and merge decision is a public PR comment, so the audit
   trail is complete.
-- Bad, because the loop acts with the owner's GitHub identity. The local hooks stop
-  accidents and injected instructions, not a deliberate adversary holding that token.
-  The boundary that holds even then is server-side: the ruleset (PR only, squash only,
-  checks from GitHub Actions, no bypass actors) and CI's use of main's guard. Running the
-  loop under a separate bot identity without admin rights would close the gap; it needs a
-  second account and is left as a hardening step.
+- Bad, because the local hooks stop accidents and injected instructions, not a
+  deliberate adversary. The boundaries that hold even then are the loop's own App
+  identity without administration rights (ADR 0003), the ruleset (PR only, squash only,
+  checks from GitHub Actions, no bypass actors) and CI's use of main's guard.
 - Bad, because each PR costs several fresh-context agent runs. The review set is sized by
   what the PR changes (prose: one auditor; code: two reviewers; phase exit: three more).

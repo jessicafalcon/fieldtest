@@ -61,7 +61,10 @@ Conventional Commits; the guard enforces the form.
 
 ## Markdown
 
-- Open with what it is, in one sentence. Then the result or the reason to care.
+- Open with what it is, in one sentence. Then the result or the reason to care. The
+  README and the GitHub description are the exception: they open with the question the
+  tool answers ("Is an LLM good enough for your document task…?"), then say what it does.
+  Keep the two in sync (`scripts/setup_github.sh` holds the description).
 - Structure for scanning: plain headings, tables for options and thresholds, numbered
   procedures with a **bold lead term**.
 - Factual, not promotional: "X, because Y" beats adjectives.

@@ -9,15 +9,12 @@
   "permissions": {
     "deny": [
       "Read(./.env)",
-      "Read(./.env.*)",
       "Edit(./.env)",
-      "Edit(./.env.*)",
       "Write(./.env)",
-      "Write(./.env.*)",
       "Read(./.private/**)",
       "Edit(./.private/**)",
       "Write(./.private/**)",
-      "Read(./CLAUDE.local.md)",
+      "Read(./.autopilot/gh/**)",
       "Edit(./CLAUDE.local.md)",
       "Write(./CLAUDE.local.md)",
       "Bash(git commit --no-verify:*)",
@@ -26,10 +23,10 @@
       "Bash(git push -f:*)",
       "Bash(gh repo delete:*)",
       "Bash(gh repo edit:*)",
-      "Bash(gh auth token:*)"
+      "Bash(gh auth token:*)",
+      "Bash(gh pr review --approve:*)"
     ],
     "allow": [
-      "Read(./.env.example)",
       "Bash(make check)",
       "Bash(make lint)",
       "Bash(make typecheck)",
@@ -40,6 +37,7 @@
       "Bash(uv run --frozen mypy:*)",
       "Bash(python3 scripts/guard.py:*)",
       "Bash(python3 scripts/check_records.py)",
+      "Bash(python3 scripts/preflight.py:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -65,7 +63,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Read|Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",

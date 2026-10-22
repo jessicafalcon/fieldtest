@@ -1,6 +1,6 @@
 # Monthly version updates. Dependabot PRs go through the same loop as any other: CI, the
 # security-reviewer, then the merge gate. A workflow bump touches a guardrail, so it also
-# needs the `human-approved` label; a major version bump is escalated (CLAUDE.md).
+# needs the owner's approving review; a major version bump is escalated (CLAUDE.md).
 # The cooldown keeps a release out until it's a week old, so a compromised version is
 # usually caught and yanked before it's ever proposed here.
 version: 2

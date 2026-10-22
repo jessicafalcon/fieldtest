@@ -19,10 +19,14 @@ covers what they can't judge.
 
 ## Never published
 
-- **Secrets:** API keys, tokens, passwords, private keys. They live in `.env`
-  (gitignored; template `.env.example`), are read from the environment by the SDK that
-  uses them, and never appear in logs, the ledger, the manifest, cache files, exception
-  text, test fixtures or CLI arguments (shell history and `ps` keep those).
+- **Secrets:** API keys, tokens, passwords, private keys. Every key lives in `.env` and
+  nowhere else (template `.env.example`). `.gitignore` keeps it out of git, and its
+  required lines can't be removed (`REQUIRED_IGNORES`, checked on every edit, commit,
+  push and merge). Claude never reads, prints, copies or edits `.env`. Only the
+  allowlisted live commands load it (`uv run --env-file .env python scripts/smoke_llm.py`,
+  `fieldtest run|compare`), and `scripts/preflight.py` says whether a key is set
+  without showing it. A key never appears in logs, the ledger, the manifest, cache files,
+  exception text, test fixtures or CLI arguments (shell history and `ps` keep those).
 - **Private context:** `.private/`, `CLAUDE.local.md`, and any term in
   `.private/denylist.txt`. Describe the tool, never who it is for (brief §11.9).
 - **Personal data:** home-directory paths, personal emails (commits use the GitHub
@@ -74,9 +78,13 @@ and move on.
 
 ## The loop's threat model
 
-The loop acts with the owner's GitHub identity, so the local hooks can stop accidents
-and injected instructions, not a deliberate adversary with that identity. The hard
-boundary is server-side: the `main` ruleset (PR only, squash only, the `check` and
-`security` checks from GitHub Actions, no bypass), the guard that CI runs from **main's**
-copy, and the `human-approved` label for a guardrail change. Anything that would weaken
-one of these is an escalation, never a fix the loop makes on its own.
+The loop acts as its own GitHub App (ADR 0003). The App has no administration rights,
+so it can't change settings or the ruleset, and as a PR's author it can't approve its
+own PR. That makes the owner's approving review on a guardrail PR a real boundary. The
+other hard boundaries are server-side: the `main` ruleset (PR only, squash only, the
+`check` and `security` checks from GitHub Actions, no bypass), and the guard that CI runs
+from **main's** copy. The local hooks stop accidents and injected instructions. A
+session that deliberately read another credential on the same machine would get past
+them, which is why running the loop under a separate OS user is offered as further
+hardening (PROJECT-BRIEF.md §12). Anything that would weaken one of these is an
+escalation, never a fix the loop makes on its own.

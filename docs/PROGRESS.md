@@ -6,8 +6,8 @@ status markers is what the `SessionStart` hook prints into every session.
 
 <!-- status:start -->
 - **Current phase:** 0A — Repo, tooling and Claude Code workflow
-- **Next step:** merge PR 1 (`build/phase-0a-workflow`). It creates every guardrail, so it waits for a human's `human-approved` label. Then Phase 0A's acceptance (skill `phase-review`).
-- **Blocked on:** nothing.
+- **Next step:** PR 1 (`build/phase-0a-workflow`). Once the prerequisites are done, the first `scripts/autopilot.sh` iteration pushes the branch as the loop's App, opens PR 1, runs the reviews and requests the owner's approval: PR 1 creates every guardrail. After the approval, `merge-gate` merges it. Then Phase 0A's acceptance (skill `phase-review`).
+- **Blocked on:** the human prerequisites in PROJECT-BRIEF.md §12, steps 1–4 (tools, GitHub settings, the loop's GitHub App, publishing). `python3 scripts/preflight.py --all` lists what's missing.
 <!-- status:end -->
 
 ## Phase 0A — Repo, tooling and Claude Code workflow
@@ -19,13 +19,16 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] `scripts/guard.py` wired as the git pre-commit, commit-msg and pre-push hook, the Claude Code hook, the CI guard and the merge gate's check
 - [x] Hooks, skills and agents (brief §9), with unit tests for every hook script
 - [x] CI (`check`, `security`), Dependabot, PR template, `SECURITY.md`, MIT licence
-- [ ] PR 1 merged by `merge-gate` after the `human-approved` label
+- [x] The loop's own GitHub identity (ADR 0003): `scripts/loop_auth.py`, `.github/loop-identity.json`, guardrail approval by the owner's review on the head commit
+- [x] Human prerequisites (brief §12) and `scripts/preflight.py`; every key in `.env`, with `.gitignore`'s secret lines locked
+- [ ] Prerequisites §12, steps 1–4 done by the human; `.github/loop-identity.json` filled in
+- [ ] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
 
 ## Phase 0B — Decisions and data spike
 
 - [ ] Plan (`phase-start`)
-- Owed: the human creates the Mistral API key, opts out of training on API data, and fills `.env`. The loop escalates (`human-action`) when the smoke call needs it.
+- Owed: brief §12, step 5 (the Mistral key in `.env`, training opted out). If it isn't done by the time the smoke call needs it, the loop escalates (`human-action`) and builds the rest meanwhile.
 
 ## Phases 1–6
 
