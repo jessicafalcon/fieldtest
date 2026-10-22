@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from guard import evaluate_pr, flag_values, hook_texts
+from guard import evaluate_pr, flag_values, hook_texts, run_base_guard_if_modified
 
 from tests.conftest import (
     FAKE_API_KEY,
@@ -377,8 +377,9 @@ def test_docs_only_prs_need_the_coherence_auditor() -> None:
     assert {f.detail for f in found} == {"no report from `coherence-auditor`"}
 
 
-def test_dependabot_prs_need_only_the_security_review_and_no_progress_record() -> None:
-    bot = {"login": "dependabot[bot]"}
+@pytest.mark.parametrize("login", ["dependabot[bot]", "app/dependabot"])
+def test_dependabot_prs_need_only_the_security_review_and_no_progress_record(login: str) -> None:
+    bot = {"login": login}
     files = [{"path": "uv.lock"}]
     comments = [review("security-reviewer", "ready", HEAD)]
     found, _ = evaluate_pr(
@@ -402,6 +403,53 @@ def test_the_loop_authors_prs_and_its_review_comments_count() -> None:
     )
     assert found == []
     assert len(notes) == 2
+
+
+def test_a_co_author_trailer_is_message_text_not_the_commit_identity() -> None:
+    # gh lists `Co-authored-by` trailers as authors after the commit's own author.
+    trailer = "Co-Authored-By: Claude <noreply@anthropic.com>"
+    commit = {
+        "oid": HEAD,
+        "authors": [{"email": NOREPLY}, {"email": "noreply@anthropic.com"}],
+        "messageHeadline": "feat: x",
+        "messageBody": trailer,
+    }
+    found, _ = evaluate_pr(pr(commits=[commit]), "", owner=OWNER, bot=BOT, terms=[])
+    assert found == []
+    commit["authors"] = [{"email": PERSONAL_EMAIL}, {"email": NOREPLY}]
+    found, _ = evaluate_pr(pr(commits=[commit]), "", owner=OWNER, bot=BOT, terms=[])
+    assert "author-email" in rules(found)
+
+
+def test_the_loop_is_recognised_in_the_login_shapes_gh_returns() -> None:
+    # Recorded from `gh pr view --json author,comments` on a PR the loop's App opened: the
+    # author is `app/<slug>` and comment authors are `<slug>`, while the loop's identity
+    # file and CI's event payload hold `<slug>[bot]`.
+    loop = {"is_bot": True, "login": "app/fieldtest-loop"}
+    comments = [
+        review("code-reviewer", "ready", HEAD, author="fieldtest-loop"),
+        review("security-reviewer", "ready", HEAD, author="fieldtest-loop"),
+    ]
+    found, notes = evaluate_pr(
+        pr(author=loop, comments=comments), "", owner=OWNER, bot=BOT, terms=[]
+    )
+    assert found == []
+    assert len(notes) == 2
+
+
+def test_a_lookalike_login_is_not_the_loop() -> None:
+    comments = [
+        review("code-reviewer", "ready", HEAD, author="fieldtest-loop-x"),
+        review("security-reviewer", "ready", HEAD, author="fieldtest-loop-x"),
+    ]
+    found, _ = evaluate_pr(
+        pr(author={"login": "app/fieldtest-loop-x"}, comments=comments),
+        "",
+        owner=OWNER,
+        bot=BOT,
+        terms=[],
+    )
+    assert {"author", "review"} <= rules(found)
 
 
 def test_a_guardrail_pr_merges_only_with_the_owners_approval_of_its_head() -> None:
@@ -455,3 +503,24 @@ def test_a_guarded_region_or_frozen_path_needs_the_owners_approval() -> None:
         read_base=base_files.get,
     )
     assert "guardrail-change" not in rules(found)
+
+
+# --- Main's guard judges a PR: fail closed when main can't be read ------------------------
+
+
+def test_before_the_first_merge_a_pr_is_judged_by_its_own_guard(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FIELDTEST_GUARD_IS_BASE", raising=False)
+    origin = tmp_path / "origin.git"
+    git(tmp_path, "init", "-q", "--bare", str(origin))
+    git(repo, "remote", "add", "origin", str(origin))
+    assert run_base_guard_if_modified(repo, ["--pr", "1"]) is None
+
+
+def test_an_unreachable_origin_blocks_instead_of_trusting_the_prs_guard(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FIELDTEST_GUARD_IS_BASE", raising=False)
+    git(repo, "remote", "add", "origin", str(tmp_path / "missing.git"))
+    assert run_base_guard_if_modified(repo, ["--pr", "1"]) == 1

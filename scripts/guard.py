@@ -45,6 +45,7 @@ from guard_rules import (
     gitignore_findings,
     is_guardrail_path,
     load_terms,
+    login_key,
     matches_frozen,
     removed_lines_by_file,
     required_reviews,
@@ -209,7 +210,7 @@ def pr_rules(
                 "commit in a review",
             )
         )
-    if author != DEPENDABOT and PROGRESS not in paths:
+    if login_key(author) != login_key(DEPENDABOT) and PROGRESS not in paths:
         findings.append(
             Finding(
                 "PR", "records", f"{PROGRESS} is not updated; every PR moves the status forward"
@@ -336,7 +337,7 @@ def evaluate_pr(
         findings.append(
             Finding("PR", "fork", "head is in a fork; external PRs are never auto-merged")
         )
-    if author not in {owner, DEPENDABOT, bot} - {""}:
+    if login_key(author) not in {login_key(x) for x in (owner, DEPENDABOT, bot) if x}:
         findings.append(
             Finding("PR", "author", f"author {author} is not the owner, the loop or Dependabot")
         )
@@ -350,7 +351,9 @@ def evaluate_pr(
     findings += check_paths(paths, "PR")
     findings += check_diff(diff, "PR diff", terms)
     for commit in pr["commits"]:
-        for person in commit["authors"]:
+        # gh lists the commit's author first, then every `Co-authored-by` trailer; trailers
+        # are message text, scanned by `check_message` like `--range` does.
+        for person in commit["authors"][:1]:
             if why := check_author_email(person.get("email", "")):
                 findings.append(Finding(f"commit {commit['oid'][:9]}", "author-email", why))
         message = f"{commit['messageHeadline']}\n{commit['messageBody']}"
@@ -395,7 +398,7 @@ def evaluate_reviews(
     fixlogs: list[tuple[int, str]] = []
     notes: list[str] = []
     for index, comment in enumerate(pr["comments"]):
-        if comment["author"]["login"] not in trusted:
+        if login_key(comment["author"]["login"]) not in {login_key(t) for t in trusted}:
             continue
         body = comment["body"]
         for match in REVIEW_MARKER.finditer(body):
@@ -453,7 +456,9 @@ def mode_pr(root: Path, number: str) -> int:
         text=True,
         check=True,
     ).stdout
-    subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=root, check=False)
+    # A PR always has a main; failing to fetch it would leave `read_base` blind to frozen
+    # paths and guarded regions, so a failure stops the guard (exit 1) instead.
+    git("fetch", "--quiet", "origin", "main", root=root)
     findings, notes = evaluate_pr(
         pr,
         diff,
@@ -487,10 +492,26 @@ def run_base_guard_if_modified(root: Path, args: list[str]) -> int | None:
     """
     if os.environ.get("FIELDTEST_GUARD_IS_BASE"):
         return None
+    # `ls-remote --exit-code` exits 2 when origin has no main (before the first merge). Any
+    # other failure is unknown state, and judging the PR by its own guard would fail open.
+    remote = subprocess.run(
+        ["git", "ls-remote", "--exit-code", "--heads", "origin", "main"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if remote.returncode == 2:
+        return None  # no origin/main yet
     try:
+        if remote.returncode != 0:
+            raise subprocess.CalledProcessError(remote.returncode, remote.args)
         git("fetch", "--quiet", "origin", "main", root=root)
     except subprocess.CalledProcessError:
-        return None  # no origin/main yet
+        print(
+            "guard: blocked: can't read origin/main, so main's guard can't judge this.",
+            file=sys.stderr,
+        )
+        return 1
     on_main = all(
         subprocess.run(
             ["git", "cat-file", "-e", f"origin/main:{name}"],

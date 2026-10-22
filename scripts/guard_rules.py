@@ -29,6 +29,7 @@ __all__ = [
     "is_docs_only",
     "is_guardrail_path",
     "load_terms",
+    "login_key",
     "matches_frozen",
     "missing_ignores",
     "removed_lines_by_file",
@@ -447,6 +448,21 @@ REVIEW_AGENTS = (
 DEPENDABOT = "dependabot[bot]"
 
 
+def login_key(login: str) -> str:
+    """A GitHub login in the one form every API agrees on, for comparing accounts.
+
+    The same App appears as `app/<slug>` (`gh pr view` author), `<slug>` (`gh pr view`
+    comment and review authors) and `<slug>[bot]` (REST, and CI's event payload). Logins are
+    case-insensitive.
+
+    >>> login_key("app/fieldtest-loop") == login_key("fieldtest-loop[bot]") == "fieldtest-loop"
+    True
+    >>> login_key("Dependabot[bot]")
+    'dependabot'
+    """
+    return login.removeprefix("app/").removesuffix("[bot]").lower()
+
+
 def approved_on_head(reviews: list[dict[str, str]], *, owner: str, head: str) -> bool:
     """True when the owner's latest review approves exactly the head commit.
 
@@ -459,7 +475,11 @@ def approved_on_head(reviews: list[dict[str, str]], *, owner: str, head: str) ->
     >>> approved_on_head([{"login": "me", "state": "APPROVED", "commit": "old"}], owner="me", head="abc")
     False
     """
-    own = [r for r in reviews if r["login"] == owner and r["state"] != "COMMENTED"]
+    own = [
+        r
+        for r in reviews
+        if login_key(r["login"]) == login_key(owner) and r["state"] != "COMMENTED"
+    ]
     return bool(own) and own[-1]["state"] == "APPROVED" and own[-1]["commit"] == head
 
 
@@ -476,7 +496,7 @@ def required_reviews(paths: list[str], *, author: str, phase_exit: bool) -> set[
     >>> sorted(required_reviews(["uv.lock"], author="dependabot[bot]", phase_exit=False))
     ['security-reviewer']
     """
-    if author == DEPENDABOT:
+    if login_key(author) == login_key(DEPENDABOT):
         return {"security-reviewer"}
     agents = (
         {"coherence-auditor"} if is_docs_only(paths) else {"code-reviewer", "security-reviewer"}
