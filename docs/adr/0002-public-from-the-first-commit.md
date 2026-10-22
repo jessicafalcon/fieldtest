@@ -41,9 +41,10 @@ secret shapes; no personal data (home-directory paths, personal emails); no term
 gitignored `.private/denylist.txt`; no removal of the `.gitignore` lines that keep `.env`
 and private context out of git; Conventional Commit subjects; noreply identities only.
 
-Every key lives in `.env` and nowhere else. Claude Code never reads it: the permission
-rules and `protect_files.py` deny the file, and `bash_policy.py` blocks shell access to it
-except through a short allowlist of live commands that load it with `--env-file`.
+Every key lives in `.env` and nowhere else. Claude Code never reads or loads it: the
+permission rules and `protect_files.py` deny the file, `bash_policy.py` blocks shell access
+to it, and under the driver the sandbox denies reading it and masks the model key
+(ADR 0005).
 
 This also settles the brief's D6 earlier than Phase 0B: a public repository needs a
 licence on its first push, so it ships with the brief's default, **MIT**.

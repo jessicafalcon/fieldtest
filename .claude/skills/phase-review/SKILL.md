@@ -40,9 +40,12 @@ phase-exit reviewers have no blocker left.
    phase** to the next one and **Next step** to its first step (`phase-start`). Make
    the same phase change in `README.md`'s status section (the records check compares
    the two), and add the table to the PR body.
-6. The PR body carries the line `Phase exit: <id>`. That makes the merge gate require
+6. At **Phase 1's** exit, the same PR sets `"frozen": true` in
+   `config/preregistration.json`: the owner's approval of this PR signs off the evaluation
+   design (brief §4, Pre-registration). Request that review as for any guardrail change.
+7. The PR body carries the line `Phase exit: <id>`. That makes the merge gate require
    all three phase-exit reports as well as the per-PR ones (CLAUDE.md, Which reviews).
-7. Continue with skill `autopilot`, step 4.
+8. Continue with skill `autopilot`, step 4.
 
 A criterion that can't pass without changing the brief (it's unreachable, or wrong) is
 a decision: put it through `plan-critic` and `plan-arbiter` (autopilot step 2). Never

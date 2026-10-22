@@ -7,11 +7,15 @@ from guard_rules import (
     added_lines_by_file,
     check_author_email,
     check_commit_subject,
+    diffs_by_file,
     forbidden_path,
+    frozen_paths,
     is_guardrail_path,
     load_terms,
+    matches_frozen,
     required_reviews,
     scan_text,
+    touches_guarded_region,
 )
 
 from tests.conftest import (
@@ -148,8 +152,12 @@ def test_only_noreply_identities_may_author() -> None:
         (".gitignore", True),
         (".github/loop-identity.json", True),
         ("scripts/loop_auth.py", True),
-        (".claude/agents/code-reviewer.md", False),
-        (".claude/skills/autopilot/SKILL.md", False),
+        (".claude/agents/code-reviewer.md", True),
+        (".claude/agents/plan-arbiter.md", True),
+        (".claude/skills/autopilot/SKILL.md", True),
+        (".claude/sandbox.autopilot.json", True),
+        ("config/preregistration.json", True),
+        (".claude/skills/fieldtest-craft/SKILL.md", False),
         ("scripts/check_records.py", False),
         ("README.md", False),
     ],
@@ -172,3 +180,55 @@ def test_reviews_scale_with_the_change() -> None:
         "determinism-auditor",
         "test-reviewer",
     }
+
+
+BASE = "intro\n<!-- guarded:start -->\nrule one\nrule two\n<!-- guarded:end -->\nfree text\n"
+
+
+def file_diff(header: str, *lines: str) -> str:
+    return "\n".join([header, *lines])
+
+
+@pytest.mark.parametrize(
+    ("hunk", "touched"),
+    [
+        (file_diff("@@ -3 +3 @@", "-rule one", "+rule 1"), True),  # edits inside
+        (file_diff("@@ -3,0 +4 @@", "+rule three"), True),  # inserts inside
+        (file_diff("@@ -5 +4,0 @@", "-<!-- guarded:end -->"), True),  # removes a marker
+        (file_diff("@@ -6 +6 @@", "-free text", "+freer text"), False),
+        (file_diff("@@ -5,0 +6 @@", "+appended after the region"), False),
+        (
+            file_diff(
+                "@@ -1,3 +1,3 @@", " intro", " <!-- guarded:start -->", "-rule one", "+rule 1"
+            ),
+            True,
+        ),
+    ],
+)
+def test_guarded_regions_catch_edits_inside_and_nothing_outside(hunk: str, touched: bool) -> None:
+    assert touches_guarded_region(BASE, hunk) is touched
+
+
+def test_unpaired_markers_guard_the_whole_file() -> None:
+    broken = "<!-- guarded:start -->\nrule\nfree\n"
+    assert touches_guarded_region(broken, file_diff("@@ -3 +3 @@", "-free", "+x"))
+
+
+def test_files_without_markers_are_never_guarded() -> None:
+    assert not touches_guarded_region("plain\n", file_diff("@@ -1 +1 @@", "-plain", "+x"))
+
+
+def test_diffs_split_per_file_by_old_path() -> None:
+    diff = (
+        "diff --git a/A.md b/A.md\n--- a/A.md\n+++ b/A.md\n@@ -1 +1 @@\n-a\n+b\n"
+        "diff --git a/new.md b/new.md\n--- /dev/null\n+++ b/new.md\n@@ -0,0 +1 @@\n+n\n"
+    )
+    assert diffs_by_file(diff) == {"A.md": "@@ -1 +1 @@\n-a\n+b", "new.md": "@@ -0,0 +1 @@\n+n"}
+
+
+def test_preregistration_freezes_only_once_frozen() -> None:
+    patterns = frozen_paths('{"frozen": true, "paths": ["usecases/", "data/*/gold.jsonl"]}')
+    assert matches_frozen("usecases/tenders/config.yaml", patterns)
+    assert matches_frozen("data/tenders/gold.jsonl", patterns)
+    assert not matches_frozen("data/tenders/raw/1.txt", patterns)
+    assert frozen_paths('{"frozen": false, "paths": ["usecases/"]}') == []

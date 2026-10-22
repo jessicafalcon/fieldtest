@@ -21,7 +21,11 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] CI (`check`, `security`), Dependabot, PR template, `SECURITY.md`, MIT licence
 - [x] The loop's own GitHub identity (ADR 0003): `scripts/loop_auth.py`, `.github/loop-identity.json`, guardrail approval by the owner's review on the head commit
 - [x] Human prerequisites (brief §12) and `scripts/preflight.py`; every key in `.env`, with `.gitignore`'s secret lines locked
+- [x] Pre-registration (ADR 0004): `config/preregistration.json`, guarded regions in the brief and `CLAUDE.md`, the agents and authority skills as guardrails
+- [x] The loop's sandbox (ADR 0005): `.claude/sandbox.autopilot.json`, the masked model key, no `--env-file`
+- [x] Gold labels text-grounded with evidence spans, in the plan (brief §4; built in Phase 1)
 - [ ] Prerequisites §12, steps 1–4 done by the human; `.github/loop-identity.json` filled in
+- [ ] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a sandboxed command sees only the placeholder key; a non-allowlisted host is denied. Unverified so far: whether Python's TLS trusts the proxy's certificate, and which cache paths need `allowWrite`
 - [ ] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
 

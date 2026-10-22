@@ -423,3 +423,35 @@ def test_a_guardrail_pr_merges_only_with_the_owners_approval_of_its_head() -> No
     assert "guardrail-change" not in rules_with(
         (OWNER, "APPROVED", HEAD), (OWNER, "COMMENTED", HEAD)
     )
+
+
+def test_a_guarded_region_or_frozen_path_needs_the_owners_approval() -> None:
+    base_files = {
+        "PROJECT-BRIEF.md": "x\n<!-- guarded:start -->\n- **Acceptance:** 100%\n<!-- guarded:end -->\n",
+        "config/preregistration.json": '{"frozen": true, "paths": ["usecases/"]}',
+    }
+    diff = (
+        "diff --git a/PROJECT-BRIEF.md b/PROJECT-BRIEF.md\n--- a/PROJECT-BRIEF.md\n"
+        "+++ b/PROJECT-BRIEF.md\n@@ -3 +3 @@\n-- **Acceptance:** 100%\n+- **Acceptance:** 80%\n"
+    )
+    files = [
+        {"path": "PROJECT-BRIEF.md"},
+        {"path": "usecases/t/config.yaml"},
+        {"path": "docs/PROGRESS.md"},
+    ]
+    found, _ = evaluate_pr(
+        pr(files=files), diff, owner=OWNER, bot=BOT, terms=[], read_base=base_files.get
+    )
+    detail = next(f.detail for f in found if f.rule == "guardrail-change")
+    assert "a guarded region of PROJECT-BRIEF.md" in detail
+    assert "usecases/t/config.yaml (frozen by pre-registration)" in detail
+    approval = [{"author": {"login": OWNER}, "state": "APPROVED", "commit": {"oid": HEAD}}]
+    found, _ = evaluate_pr(
+        pr(files=files, reviews=approval),
+        diff,
+        owner=OWNER,
+        bot=BOT,
+        terms=[],
+        read_base=base_files.get,
+    )
+    assert "guardrail-change" not in rules(found)

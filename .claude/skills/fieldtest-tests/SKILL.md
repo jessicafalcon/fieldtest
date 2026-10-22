@@ -41,6 +41,9 @@ are offline (brief §3.9): `uv run pytest` needs no network, no API key and no c
 - **Empty predictor**: 0% accuracy, 100% abstention.
 - **One crafted fixture per outcome**: `correct`, `missing`, `wrong`, `hallucinated`,
   `invalid`, `call_failed`, each asserted by name.
+- **Gold validator**: a label whose evidence quote doesn't match the text at its offsets,
+  a non-null label without evidence, and a quote that doesn't normalize to the value each
+  fail validation.
 - **Recommendation**: the cheapest model qualifies; only the large one qualifies;
   `NOT_READY` with its blocking fields; a tie broken by model ID (Phase 3).
 

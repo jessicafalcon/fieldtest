@@ -15,6 +15,10 @@ never merges a PR from a fork. A maintainer reviews outside contributions by han
   live only in a local, gitignored `.env`. The `.gitignore` lines that keep it out can't
   be removed by any edit, commit, push or merge. Claude Code never reads it, and CI has
   no key and runs in replay mode.
+- **A sandbox for the autonomous loop.** Every command it runs is confined by Claude
+  Code's OS-enforced sandbox: no reads of `.env` or the owner's credentials, network only
+  to allowlisted hosts, and the model key visible only as a placeholder the proxy replaces
+  on requests to the model API (ADR 0005).
 - **A separate identity for the autonomous loop.** It acts as a GitHub App without
   administration rights, using one-hour tokens. It can't change settings, and it can't
   approve its own PRs, so a change to the guardrails merges only after the owner's review

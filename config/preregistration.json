@@ -1,0 +1,11 @@
+{
+  "_comment": "What defines a fieldtest result, frozen before the first comparison run (ADR 0004). While `frozen` is false the loop may edit these paths. Phase 1's exit PR sets it to true, and that PR, like any change to this file, needs the owner's approving review. Once frozen, a change to any listed path needs the owner's approval too, and the findings report it as a deviation.",
+  "frozen": false,
+  "freeze_at": "Phase 1 exit, before the first model run whose results are reported",
+  "paths": [
+    "usecases/",
+    "data/*/gold.jsonl",
+    "data/*/DATASET.md",
+    "config/models.yaml"
+  ]
+}

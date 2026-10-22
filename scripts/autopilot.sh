@@ -11,6 +11,11 @@
 # private gh config in .autopilot/gh/ that holds a one-hour token, refreshed every 30
 # minutes and deleted on exit. The App's keys stay in .env; nothing here prints them.
 #
+# Sandbox (ADR 0005): every shell command the session runs is confined by
+# .claude/sandbox.autopilot.json: no reads of .env, .private/ or your own credentials,
+# network only to the allowlisted hosts, and MISTRAL_API_KEY visible only as a placeholder
+# that the sandbox proxy replaces on requests to api.mistral.ai.
+#
 # Each iteration ends with one `AUTOPILOT-RESULT:` line (CLAUDE.md, The loop). After
 # `merged` it continues; after `escalated`, `blocked` or `awaiting-approval` it waits for
 # you (an issue closed, a PR approved) and then continues; after `done`, or two failed
@@ -54,6 +59,15 @@ export GIT_AUTHOR_NAME="$login" GIT_AUTHOR_EMAIL="$email" \
   GIT_COMMITTER_NAME="$login" GIT_COMMITTER_EMAIL="$email"
 echo "autopilot: acting as $login"
 
+# The sandbox settings, with absolute paths (relative ones would resolve against the
+# settings file's location).
+sandbox="$root/.autopilot/sandbox.json"
+sed "s#{ROOT}#$root#g" .claude/sandbox.autopilot.json >"$sandbox"
+# The model key, if set, enters the session only here, and sandboxed commands see it masked.
+model_key="$(python3 -c 'import sys; sys.path.insert(0, "scripts"); from pathlib import Path; from loop_auth import read_env; print(read_env(Path(".env")).get("MISTRAL_API_KEY", ""))')"
+if [ -n "$model_key" ]; then export MISTRAL_API_KEY="$model_key"; fi
+unset model_key
+
 # Wait while the loop needs you: an open needs-human issue, or a PR awaiting your approval.
 wait_for_human() {
   local pr="$1" deadline=$(( $(date +%s) + wait_hours * 3600 ))
@@ -80,7 +94,7 @@ for i in $(seq 1 "$max"); do
   echo "autopilot: iteration $i/$max (log: $log)"
   # ${budget[@]+...}: an empty array under `set -u` breaks macOS's bash 3.2 otherwise.
   if claude -p "/autopilot" --model claude-opus-5-5 --permission-mode auto \
-      ${budget[@]+"${budget[@]}"} >"$log" 2>&1; then
+      --settings "$sandbox" ${budget[@]+"${budget[@]}"} >"$log" 2>&1; then
     failures=0
   else
     failures=$((failures + 1))

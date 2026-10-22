@@ -152,9 +152,21 @@ Escalation types: `human-action`, `decision`, `security`, `budget`, `infrastruct
 
 Every key is in `.env`, which you never read. Before a step that needs one, run
 `python3 scripts/preflight.py`. If the key isn't set, escalate (`human-action`) with the
-§12 step that provides it. A live call runs only as one of the allowlisted commands
-(`uv run --env-file .env python scripts/smoke_llm.py`, `uv run --frozen --env-file .env
-fieldtest run|compare …`); the bash policy blocks any other use of `--env-file .env`.
+§12 step that provides it. Under the driver, the sandbox gives every command a masked
+`MISTRAL_API_KEY` that works only against `api.mistral.ai`, so a live call is just the
+command (`uv run --frozen python scripts/smoke_llm.py`, `uv run --frozen fieldtest run …`).
+Never load `.env` (`--env-file` is blocked). A live call outside the driver has no key:
+escalate. A host the work needs that the sandbox denies is a guardrail change to
+`.claude/sandbox.autopilot.json`.
+
+## Pre-registration
+
+Before Phase 1's exit, the paths in `config/preregistration.json` are yours to shape.
+Phase 1's exit PR freezes them, and the owner's approval of that PR signs off the
+evaluation design. After the freeze, never change a threshold, a gold label, a field or the
+model list to make a result look better. If one is genuinely wrong, put the change through
+`plan-critic` and `plan-arbiter`, write an ADR, record it under "Deviations from
+pre-registration" in the findings, and expect the PR to wait for the owner's approval.
 
 ## Identity
 

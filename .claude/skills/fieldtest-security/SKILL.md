@@ -22,10 +22,10 @@ covers what they can't judge.
 - **Secrets:** API keys, tokens, passwords, private keys. Every key lives in `.env` and
   nowhere else (template `.env.example`). `.gitignore` keeps it out of git, and its
   required lines can't be removed (`REQUIRED_IGNORES`, checked on every edit, commit,
-  push and merge). Claude never reads, prints, copies or edits `.env`. Only the
-  allowlisted live commands load it (`uv run --env-file .env python scripts/smoke_llm.py`,
-  `fieldtest run|compare`), and `scripts/preflight.py` says whether a key is set
-  without showing it. A key never appears in logs, the ledger, the manifest, cache files,
+  push and merge). Claude never reads, prints, copies, edits or loads `.env`. Under the
+  driver, commands see the model key only as a sandbox placeholder that the proxy replaces
+  on requests to `api.mistral.ai` (ADR 0005), and `scripts/preflight.py` says whether a key
+  is set without showing it. A key never appears in logs, the ledger, the manifest, cache files,
   exception text, test fixtures or CLI arguments (shell history and `ps` keep those).
 - **Private context:** `.private/`, `CLAUDE.local.md`, and any term in
   `.private/denylist.txt`. Describe the tool, never who it is for (brief §11.9).
@@ -83,8 +83,10 @@ so it can't change settings or the ruleset, and as a PR's author it can't approv
 own PR. That makes the owner's approving review on a guardrail PR a real boundary. The
 other hard boundaries are server-side: the `main` ruleset (PR only, squash only, the
 `check` and `security` checks from GitHub Actions, no bypass), and the guard that CI runs
-from **main's** copy. The local hooks stop accidents and injected instructions. A
-session that deliberately read another credential on the same machine would get past
-them, which is why running the loop under a separate OS user is offered as further
-hardening (PROJECT-BRIEF.md §12). Anything that would weaken one of these is an
+from **main's** copy. On the machine, the OS-enforced sandbox (ADR 0005) confines every
+command the loop runs: no reads of `.env`, `.private/` or your own credentials, network only
+to allowlisted hosts, and a masked model key. The local hooks add policy on top: they stop
+accidents and injected instructions. Hooks, the file tools and the Claude process itself run
+outside the sandbox, which is why hooks are guardrails, and why running the driver as a
+separate OS user remains optional hardening (PROJECT-BRIEF.md §12). Anything that would weaken one of these is an
 escalation, never a fix the loop makes on its own.

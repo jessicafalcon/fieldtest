@@ -42,7 +42,7 @@ def read_reason(rel: str) -> str | None:
     """Why `rel` must not be read, or None."""
     p = PurePosixPath(rel)
     if (p.name == ".env" or p.name.startswith(".env.")) and p.name != ".env.example":
-        return "environment files hold the keys; only the allowlisted commands load .env"
+        return "environment files hold the keys; only the driver reads .env (ADR 0005)"
     if p.parts[:1] == (".private",):
         return "private context is the human's"
     if p.parts[:2] == (".autopilot", "gh"):

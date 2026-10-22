@@ -57,7 +57,8 @@ For each critic finding, and each decision the critic says is missing:
   writes it into `docs/PROGRESS.md` under that step.
 - **escalate**: only when the policy reserves it for a human:
   - it would change a phase's goal or acceptance criteria, the §3 principles or the §4
-    contract;
+    contract, or anything pre-registered (§4, Pre-registration) once it's frozen: a threshold,
+    a field, a gold label, the model list or the recommendation rule;
   - it needs money, an account, a credential, a console setting, or a legal or licence
     choice;
   - it would weaken a guardrail or change what is public;

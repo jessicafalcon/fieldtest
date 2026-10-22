@@ -7,9 +7,9 @@
   and squash-merge one pinned head commit.
 - Every other session: no hook bypass, no force push, no push to `main` or to another
   remote, no merge, no PR approval, no mutating `gh api` or repo-settings call, no change
-  to the GitHub identity the driver set, no secret reads, no shell write to `.gitignore`,
-  `--env-file .env` only for the allowlisted live commands, and the git hooks installed
-  before any commit or push.
+  to the GitHub identity the driver set, no secret reads (`--env-file .env` included: under
+  the driver the sandbox hands commands a masked key), no shell write to `.gitignore`, and
+  the git hooks installed before any commit or push.
 
 The role is the payload's `agent_type`, or `--as NAME` from an agent's frontmatter
 registration (a backup: Claude Code skips frontmatter hooks in an untrusted folder).
@@ -143,11 +143,6 @@ IDENTITY_ENV = {
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
 }
-# The only commands that may load `.env`: the live calls the brief plans. Each one reads
-# the one key it needs through its SDK. Keep in sync with PROJECT-BRIEF.md §12.
-ENV_FILE_COMMANDS = re.compile(
-    r"^uv run (--frozen )?--env-file \.env (python scripts/smoke_llm\.py|fieldtest (run|compare)\b)"
-)
 GITIGNORE_WRITERS = {
     "sed",
     "perl",
@@ -388,7 +383,7 @@ def _hooks_missing(cwd: Path) -> list[str]:
 
 
 def secret_reads(words: list[str]) -> list[str]:
-    """A word naming `.env`, `.private/` or a secret variable, outside `--env-file .env`.
+    """A word naming `.env` (to read, copy or load it), `.private/` or a secret variable.
 
     Words, not the raw text: a commit message that mentions `.env` is one quoted word.
     """
@@ -396,16 +391,15 @@ def secret_reads(words: list[str]) -> list[str]:
     for i, word in enumerate(words):
         name = word.rstrip("/").rsplit("/", 1)[-1]
         if re.fullmatch(r"\.env(\.[\w-]+)?", name) and name != ".env.example":
-            loads = i > 0 and words[i - 1] == "--env-file"
-            if not loads:
-                found.append(".env is never printed, copied, moved or edited from the shell")
-            elif not ENV_FILE_COMMANDS.match(" ".join(words)):
+            if i > 0 and words[i - 1] == "--env-file":
                 found.append(
-                    "`--env-file .env` only for the smoke call and `fieldtest run|compare` "
-                    "(PROJECT-BRIEF.md §12)"
+                    "no command loads .env: under the driver the sandbox gives commands a "
+                    "masked MISTRAL_API_KEY; outside it, escalate (ADR 0005)"
                 )
+            else:
+                found.append(".env is never printed, copied, moved or edited from the shell")
         if word.startswith("--env-file=") and word.partition("=")[2].endswith(".env"):
-            found.append("use `--env-file .env` as two words, with an allowlisted command")
+            found.append("no command loads .env (ADR 0005)")
         if ".autopilot/gh" in word:
             found.append(".autopilot/gh/ holds the loop's token; never read it")
         if word == ".private" or word.startswith(".private/") or "/.private" in word:

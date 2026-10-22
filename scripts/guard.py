@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -38,13 +39,17 @@ from guard_rules import (
     approved_on_head,
     check_author_email,
     check_commit_subject,
+    diffs_by_file,
     forbidden_path,
+    frozen_paths,
     gitignore_findings,
     is_guardrail_path,
     load_terms,
+    matches_frozen,
     removed_lines_by_file,
     required_reviews,
     scan_text,
+    touches_guarded_region,
 )
 
 PROGRESS = "docs/PROGRESS.md"
@@ -164,19 +169,43 @@ def check_commits(shas: list[str], root: Path, terms: list[re.Pattern[str]]) -> 
     return findings
 
 
-def pr_rules(paths: list[str], *, author: str, owner: str, approved: bool) -> list[Finding]:
+def guarded_changes(
+    paths: list[str], diff: str, read_base: Callable[[str], str | None]
+) -> list[str]:
+    """What a PR changes that main guards: a path frozen by pre-registration, or a guarded
+    region of a file (ADR 0004). `read_base` returns a file's text on main, or None."""
+    reasons = []
+    preregistration = read_base("config/preregistration.json")
+    patterns = frozen_paths(preregistration) if preregistration else []
+    reasons += [f"{p} (frozen by pre-registration)" for p in paths if matches_frozen(p, patterns)]
+    for path, file_diff in sorted(diffs_by_file(diff).items()):
+        base = read_base(path)
+        if base is not None and touches_guarded_region(base, file_diff):
+            reasons.append(f"a guarded region of {path}")
+    return reasons
+
+
+def no_base(path: str) -> str | None:
+    del path
+    return None
+
+
+def pr_rules(
+    paths: list[str], *, author: str, owner: str, approved: bool, guarded: list[str] | None = None
+) -> list[Finding]:
     """Rules that apply to a PR as a whole, shared by CI and the merge gate.
 
-    `approved` is whether the owner's latest review approves the PR's head commit.
+    `approved` is whether the owner's latest review approves the PR's head commit;
+    `guarded` lists what the PR changes that main guards (`guarded_changes`).
     """
     findings = []
-    guardrails = sorted(p for p in paths if is_guardrail_path(p))
-    if guardrails and not approved:
+    changes = sorted(p for p in paths if is_guardrail_path(p)) + list(guarded or [])
+    if changes and not approved:
         findings.append(
             Finding(
                 "PR",
                 "guardrail-change",
-                f"changes {', '.join(guardrails)}; merges only after @{owner} approves the head "
+                f"changes {', '.join(changes)}; merges only after @{owner} approves the head "
                 "commit in a review",
             )
         )
@@ -246,8 +275,18 @@ def mode_range(root: Path, spec: str) -> int:
         head_sha = git("rev-parse", head or "HEAD", root=root).strip()
         approved = approved_on_head(normalize_reviews(raw), owner=owner, head=head_sha)
         paths = git("diff", "--name-only", f"{base}...{head or 'HEAD'}", root=root).splitlines()
-        findings += pr_rules(paths, author=author, owner=owner, approved=approved)
+        diff = git("diff", "--no-color", "-U0", f"{base}...{head or 'HEAD'}", root=root)
+        guarded = guarded_changes(paths, diff, lambda path: show(root, base, path))
+        findings += pr_rules(paths, author=author, owner=owner, approved=approved, guarded=guarded)
     return report(findings, f"range {spec}")
+
+
+def show(root: Path, ref: str, path: str) -> str | None:
+    """A file's text at `ref`, or None when it doesn't exist there."""
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True, text=True, check=False
+    )
+    return result.stdout if result.returncode == 0 else None
 
 
 def normalize_reviews(raw: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -274,7 +313,13 @@ def gh_json(*args: str, root: Path) -> dict[str, Any]:
 
 
 def evaluate_pr(
-    pr: dict[str, Any], diff: str, *, owner: str, bot: str, terms: list[re.Pattern[str]]
+    pr: dict[str, Any],
+    diff: str,
+    *,
+    owner: str,
+    bot: str,
+    terms: list[re.Pattern[str]],
+    read_base: Callable[[str], str | None] = no_base,
 ) -> tuple[list[Finding], list[str]]:
     """Every merge-blocking finding for a PR, and the loop's review notes for the gate.
 
@@ -314,7 +359,8 @@ def evaluate_pr(
     approved = approved_on_head(
         normalize_reviews(pr["reviews"]), owner=owner, head=pr["headRefOid"]
     )
-    findings += pr_rules(paths, author=author, owner=owner, approved=approved)
+    guarded = guarded_changes(paths, diff, read_base)
+    findings += pr_rules(paths, author=author, owner=owner, approved=approved, guarded=guarded)
 
     rollup = {c.get("name") or c.get("context"): c for c in pr["statusCheckRollup"]}
     for name in REQUIRED_CHECKS:
@@ -407,8 +453,14 @@ def mode_pr(root: Path, number: str) -> int:
         text=True,
         check=True,
     ).stdout
+    subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=root, check=False)
     findings, notes = evaluate_pr(
-        pr, diff, owner=repo["owner"]["login"], bot=loop_bot(root), terms=terms_for(root)
+        pr,
+        diff,
+        owner=repo["owner"]["login"],
+        bot=loop_bot(root),
+        terms=terms_for(root),
+        read_base=lambda path: show(root, "origin/main", path),
     )
     print(f"PR #{number} head {pr['headRefOid']}")
     print("\n".join(notes) if notes else "(no review comments from the loop or the owner)")

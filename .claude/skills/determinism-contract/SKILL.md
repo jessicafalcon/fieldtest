@@ -64,9 +64,15 @@ flags the rest on every edit; pre-commit runs the same check.
 - **Nothing disappears silently.** A failed call, an invalid output or a skipped document
   is an event and a count in `results.json`. A stage that drops an item without a
   counter is a bug.
-- **Gold labels are evidence.** A committed `gold.jsonl` changes only through the
-  labeling script under a new ADR (the `protect_files` hook), and never to make a model
-  look better.
+- **Gold labels are evidence, grounded in the text.** Every non-null gold value carries
+  `evidence: {quote, start, end}` whose quote equals the document text at those offsets and
+  normalizes to the value. A value the text doesn't state is `null`, with `source_value`
+  kept for audit. A validator rejects anything else. Gold on `main` changes only through
+  the labeling script under a new ADR (the `protect_files` hook).
+- **Pre-registered means frozen.** After Phase 1's exit, the paths in
+  `config/preregistration.json` change only with the owner's approval and an ADR, and the
+  findings report each change. Never tune a threshold, field, label or the model list
+  after seeing scores.
 
 ## Review checklist
 

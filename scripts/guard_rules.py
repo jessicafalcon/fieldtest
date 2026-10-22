@@ -6,8 +6,10 @@ functions, so every rule is unit-tested on plain strings. Stdlib only.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import PurePosixPath
 
 __all__ = [
@@ -19,15 +21,20 @@ __all__ = [
     "approved_on_head",
     "check_author_email",
     "check_commit_subject",
+    "diffs_by_file",
     "forbidden_path",
+    "frozen_paths",
     "gitignore_findings",
+    "guarded_regions",
     "is_docs_only",
     "is_guardrail_path",
     "load_terms",
+    "matches_frozen",
     "missing_ignores",
     "removed_lines_by_file",
     "required_reviews",
     "scan_text",
+    "touches_guarded_region",
 ]
 
 
@@ -74,15 +81,24 @@ def forbidden_path(path: str) -> str | None:
 
 # --- Guardrails: files whose change needs a human ----------------------------------------
 
-# Keep in sync with "Guardrails" in CLAUDE.md and ADR 0001. A PR that touches any of
-# these merges only with the repo owner's approving review on its head commit. The loop
-# acts as its own GitHub App, and a PR's author can never approve it (ADR 0003).
+# Keep in sync with "Guardrails" in CLAUDE.md and ADRs 0001 and 0004. A PR that touches
+# any of these merges only with the repo owner's approving review on its head commit. The
+# loop acts as its own GitHub App, and a PR's author can never approve it (ADR 0003).
+# The list covers what constrains the loop and what defines its authority: the agents
+# (reviewers, arbiter, merge gate), the skills that decide when to escalate or accept, the
+# sandbox, and the pre-registration file.
 GUARDRAIL_PATHS = (
     ".gitignore",
     ".claude/settings.json",
+    ".claude/sandbox.autopilot.json",
     ".claude/hooks/",
-    ".claude/agents/merge-gate.md",
-    ".claude/agents/security-reviewer.md",
+    ".claude/agents/",
+    ".claude/skills/autopilot/",
+    ".claude/skills/phase-start/",
+    ".claude/skills/phase-review/",
+    ".claude/skills/determinism-contract/",
+    ".claude/skills/fieldtest-security/",
+    "config/preregistration.json",
     ".github/workflows/",
     ".github/dependabot.yml",
     ".github/loop-identity.json",
@@ -93,6 +109,119 @@ GUARDRAIL_PATHS = (
     "scripts/loop_auth.py",
     "scripts/setup_github.sh",
 )
+
+# --- Guarded regions and pre-registration (ADR 0004) --------------------------------------
+
+# Text between these markers, in any file on main, changes only with the owner's approval:
+# the brief's principles, determinism contract, outcome taxonomy, recommendation rule,
+# acceptance criteria and escalation policy, and the matching parts of CLAUDE.md.
+GUARD_START = "<!-- guarded:start -->"
+GUARD_END = "<!-- guarded:end -->"
+
+
+def guarded_regions(text: str) -> list[tuple[int, int]] | None:
+    """1-based (start, end) line ranges between the markers; None if they don't pair up.
+
+    >>> guarded_regions("a\\n<!-- guarded:start -->\\nb\\n<!-- guarded:end -->\\n")
+    [(2, 4)]
+    >>> guarded_regions("<!-- guarded:start -->\\nb\\n") is None
+    True
+    """
+    regions: list[tuple[int, int]] = []
+    start: int | None = None
+    for number, line in enumerate(text.splitlines(), start=1):
+        if GUARD_START in line:
+            if start is not None:
+                return None
+            start = number
+        elif GUARD_END in line:
+            if start is None:
+                return None
+            regions.append((start, number))
+            start = None
+    return None if start is not None else regions
+
+
+def diffs_by_file(diff: str) -> dict[str, str]:
+    """A unified diff split per file, keyed by the old path (the new one for an added file)."""
+    files: dict[str, list[str]] = {}
+    current: list[str] = []
+    old = new = ""
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            current = []
+            old = new = ""
+            continue
+        if line.startswith("--- ") and not old:
+            old = line[6:] if line.startswith("--- a/") else ""
+            continue
+        elif line.startswith("+++ ") and not new:
+            new = line[6:] if line.startswith("+++ b/") else ""
+            files[old or new] = current
+            continue
+        current.append(line)
+    return {name: "\n".join(lines) for name, lines in files.items()}
+
+
+def _old_lines_touched(file_diff: str) -> tuple[set[int], set[int]]:
+    """(old lines removed, old lines after which text is inserted) in one file's hunks."""
+    removed: set[int] = set()
+    inserted_after: set[int] = set()
+    old_line = 0
+    for line in file_diff.splitlines():
+        if line.startswith("@@"):
+            header = line.split()[1]  # -a,b
+            start, _, count = header[1:].partition(",")
+            # With a zero count, `a` is the line the hunk inserts after.
+            old_line = int(start) + (0 if count == "0" else -1)
+        elif line.startswith("-"):
+            old_line += 1
+            removed.add(old_line)
+        elif line.startswith("+"):
+            inserted_after.add(old_line)
+        elif line.startswith(" "):
+            old_line += 1
+    return removed, inserted_after
+
+
+def touches_guarded_region(base_text: str, file_diff: str) -> bool:
+    """True when a change removes, edits or inserts lines inside a guarded region of the base.
+
+    Unpaired markers on the base guard the whole file, so a broken marker never opens it.
+    """
+    if GUARD_START not in base_text and GUARD_END not in base_text:
+        return False
+    regions = guarded_regions(base_text)
+    removed, inserted_after = _old_lines_touched(file_diff)
+    if regions is None:
+        return bool(removed or inserted_after)
+    return any(start <= n <= end for start, end in regions for n in removed) or any(
+        start <= n < end for start, end in regions for n in inserted_after
+    )
+
+
+def frozen_paths(preregistration: str) -> list[str]:
+    """The path patterns `config/preregistration.json` freezes, or [] while it isn't frozen.
+
+    >>> frozen_paths('{"frozen": true, "paths": ["usecases/", "data/*/gold.jsonl"]}')
+    ['usecases/', 'data/*/gold.jsonl']
+    >>> frozen_paths('{"frozen": false, "paths": ["usecases/"]}')
+    []
+    """
+    data = json.loads(preregistration)
+    return list(data.get("paths", [])) if data.get("frozen") is True else []
+
+
+def matches_frozen(path: str, patterns: list[str]) -> bool:
+    """A directory pattern (`usecases/`) covers everything under it; others are globs.
+
+    >>> matches_frozen("data/tenders/gold.jsonl", ["data/*/gold.jsonl"])
+    True
+    >>> matches_frozen("usecases/tenders/prompt.md", ["usecases/"])
+    True
+    """
+    return any(path.startswith(p) if p.endswith("/") else fnmatch(path, p) for p in patterns)
+
 
 # Lines `.gitignore` must always hold, so `.env` and private context can never be staged
 # by accident. No edit, commit, push or merge may remove one (protect_files.py and the
