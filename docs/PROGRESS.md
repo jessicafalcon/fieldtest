@@ -7,7 +7,7 @@ status markers is what the `SessionStart` hook prints into every session.
 <!-- status:start -->
 - **Current phase:** 0A — Repo, tooling and Claude Code workflow
 - **Next step:** PR 1 (`build/phase-0a-workflow`). Once the prerequisites are done, the first `scripts/autopilot.sh` iteration pushes the branch as the loop's App, opens PR 1, runs the reviews and requests the owner's approval: PR 1 creates every guardrail. After the approval, `merge-gate` merges it. Then Phase 0A's acceptance (skill `phase-review`).
-- **Blocked on:** the human prerequisites in PROJECT-BRIEF.md §12, steps 1–4 (tools, GitHub settings, the loop's GitHub App, publishing). `python3 scripts/preflight.py --all` lists what's missing.
+- **Blocked on:** nothing. The next `scripts/autopilot.sh` run opens PR 1.
 <!-- status:end -->
 
 ## Phase 0A — Repo, tooling and Claude Code workflow
@@ -24,7 +24,7 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] Pre-registration (ADR 0004): `config/preregistration.json`, guarded regions in the brief and `CLAUDE.md`, the agents and authority skills as guardrails
 - [x] The loop's sandbox (ADR 0005): `.claude/sandbox.autopilot.json`, the masked model key, no `--env-file`
 - [x] Gold labels text-grounded with evidence spans, in the plan (brief §4; built in Phase 1)
-- [ ] Prerequisites §12, steps 1–4 done by the human; `.github/loop-identity.json` filled in
+- [x] Prerequisites §12, steps 1–4 done by the human (repo published, App `fieldtest-loop-jessicafalcon` installed, `preflight --online` passes); `.github/loop-identity.json` filled in
 - [ ] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a sandboxed command sees only the placeholder key; a non-allowlisted host is denied. Unverified so far: whether Python's TLS trusts the proxy's certificate, and which cache paths need `allowWrite`
 - [ ] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
