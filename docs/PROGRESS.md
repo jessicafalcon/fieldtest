@@ -6,8 +6,8 @@ status markers is what the `SessionStart` hook prints into every session.
 
 <!-- status:start -->
 - **Current phase:** 0A — Repo, tooling and Claude Code workflow
-- **Next step:** PR 1 (`build/phase-0a-workflow`). Once the prerequisites are done, the first `scripts/autopilot.sh` iteration pushes the branch as the loop's App, opens PR 1, runs the reviews and requests the owner's approval: PR 1 creates every guardrail. After the approval, `merge-gate` merges it. Then Phase 0A's acceptance (skill `phase-review`).
-- **Blocked on:** nothing. The next `scripts/autopilot.sh` run opens PR 1.
+- **Next step:** Phase 0A's acceptance (skill `phase-review`), once PR 1 is merged.
+- **Blocked on:** PR 1 needs the owner's approving review on its head commit: it creates every guardrail.
 <!-- status:end -->
 
 ## Phase 0A — Repo, tooling and Claude Code workflow
@@ -25,13 +25,14 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] The loop's sandbox (ADR 0005): `.claude/sandbox.autopilot.json`, the masked model key, no `--env-file`
 - [x] Gold labels text-grounded with evidence spans, in the plan (brief §4; built in Phase 1)
 - [x] Prerequisites §12, steps 1–4 done by the human (repo published, App `fieldtest-loop-jessicafalcon` installed, `preflight --online` passes); `.github/loop-identity.json` filled in
-- [ ] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a sandboxed command sees only the placeholder key; a non-allowlisted host is denied. Unverified so far: whether Python's TLS trusts the proxy's certificate, and which cache paths need `allowWrite`
-- [ ] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
+- [x] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a non-allowlisted host is denied (403 from the proxy); Python's TLS trusts the proxy's certificate; the existing `allowWrite` cache paths suffice. It found two fixes, made in PR 1: pytest stats `.env` and `.private/` while collecting, so they are `--ignore`d, and the driver's git identity and flag leaked into the tests, so `tests/conftest.py` removes them. Unverified: that a sandboxed command sees only the placeholder key (the bash policy refuses to expand it); owed to Phase 0B's smoke call.
+- [x] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
 
 ## Phase 0B — Decisions and data spike
 
 - [ ] Plan (`phase-start`)
+- Owed from 0A: the smoke call shows the sandbox's masked key works only against `api.mistral.ai`.
 - Owed: brief §12, step 5 (the Mistral key in `.env`, training opted out). If it isn't done by the time the smoke call needs it, the loop escalates (`human-action`) and builds the rest meanwhile.
 
 ## Phases 1–6

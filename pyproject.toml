@@ -33,8 +33,17 @@ testpaths = ["tests", "src", "scripts", ".claude/hooks"]
 # The hooks and scripts are stdlib scripts, not a package; tests import them by module name.
 pythonpath = [".claude/hooks", "scripts"]
 # Tests never touch the network (brief §3.9): any socket other than a Unix one fails the
-# test that opens it.
-addopts = ["--doctest-modules", "--disable-socket", "--allow-unix-socket", "-p", "no:cacheprovider"]
+# test that opens it. Reaching `testpaths`, pytest stats every entry of the repo root; the
+# loop's sandbox denies `.env` and `.private/` even to stat, so they are ignored by name.
+addopts = [
+    "--doctest-modules",
+    "--disable-socket",
+    "--allow-unix-socket",
+    "-p",
+    "no:cacheprovider",
+    "--ignore=.env",
+    "--ignore=.private",
+]
 strict = true
 
 [tool.ruff]
