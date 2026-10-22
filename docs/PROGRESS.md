@@ -27,6 +27,7 @@ status markers is what the `SessionStart` hook prints into every session.
 - [x] Prerequisites §12, steps 1–4 done by the human (repo published, App `fieldtest-loop-jessicafalcon` installed, `preflight --online` passes); `.github/loop-identity.json` filled in
 - [x] Sandbox trial run under the driver: `uv`, pre-commit, git and gh work inside it; a non-allowlisted host is denied (403 from the proxy); Python's TLS trusts the proxy's certificate; the existing `allowWrite` cache paths suffice. It found two fixes, made in PR 1: pytest stats `.env` and `.private/` while collecting, so they are `--ignore`d, and the driver's git identity and flag leaked into the tests, so `tests/conftest.py` removes them. Unverified: that a sandboxed command sees only the placeholder key (the bash policy refuses to expand it); owed to Phase 0B's smoke call.
 - [x] PR 1 opened by the loop's App, approved by the owner, merged by `merge-gate`
+- Owed by the acceptance: skill `autopilot` step 4 says `git push -u`, but the sandbox denies writes to `.git/config`, so the upstream isn't recorded (the push succeeds). Drop `-u` (a guardrail change).
 - [ ] Acceptance (`phase-review`): `make check` green; `/hooks` lists the hooks; an edit to `cache/llm/` is blocked; a commit with a fake API key is blocked; a commit staging `.private/` is blocked; the loop takes Phase 0A through `phase-review` end to end
 
 ## Phase 0B — Decisions and data spike
@@ -43,4 +44,4 @@ Not started. Each begins with `phase-start`, which writes its PR list here.
 
 One line per merged PR: `#N` · title · what it closed.
 
-- (none yet)
+- #1 · feat(loop): add the public-repo guard, hooks, CI and the autonomous delivery loop · Phase 0A's tooling, the loop, its identity and sandbox; the sandbox trial run
