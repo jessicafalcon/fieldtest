@@ -87,6 +87,6 @@ from **main's** copy. On the machine, the OS-enforced sandbox (ADR 0005) confine
 command the loop runs: no reads of `.env`, `.private/` or your own credentials, network only
 to allowlisted hosts, and a masked model key. The local hooks add policy on top: they stop
 accidents and injected instructions. Hooks, the file tools and the Claude process itself run
-outside the sandbox, which is why hooks are guardrails, and why running the driver as a
-separate OS user remains optional hardening (PROJECT-BRIEF.md §12). Anything that would weaken one of these is an
+outside the sandbox, which is why hooks are guardrails, and why the driver runs as its own
+macOS user that holds nothing but the loop's `.env` (PROJECT-BRIEF.md §12, ADR 0007). Anything that would weaken one of these is an
 escalation, never a fix the loop makes on its own.

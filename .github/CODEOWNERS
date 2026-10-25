@@ -6,15 +6,7 @@
 /pyproject.toml @jessicafalcon
 /Makefile @jessicafalcon
 /.github/CODEOWNERS @jessicafalcon
-/.claude/settings.json @jessicafalcon
-/.claude/sandbox.autopilot.json @jessicafalcon
-/.claude/hooks/ @jessicafalcon
-/.claude/agents/ @jessicafalcon
-/.claude/skills/autopilot/ @jessicafalcon
-/.claude/skills/phase-start/ @jessicafalcon
-/.claude/skills/phase-review/ @jessicafalcon
-/.claude/skills/determinism-contract/ @jessicafalcon
-/.claude/skills/fieldtest-security/ @jessicafalcon
+/.claude/ @jessicafalcon
 /config/preregistration.json @jessicafalcon
 /.github/workflows/ @jessicafalcon
 /.github/dependabot.yml @jessicafalcon

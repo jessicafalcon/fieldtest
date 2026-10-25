@@ -85,23 +85,15 @@ def forbidden_path(path: str) -> str | None:
 # Keep in sync with "Guardrails" in CLAUDE.md and ADRs 0001 and 0004. A PR that touches
 # any of these merges only with the repo owner's approving review on its head commit. The
 # loop acts as its own GitHub App, and a PR's author can never approve it (ADR 0003).
-# The list covers what constrains the loop and what defines its authority: the agents
-# (reviewers, arbiter, merge gate), the skills that decide when to escalate or accept, the
-# sandbox, and the pre-registration file.
+# The list covers what constrains the loop and what defines its authority: all of `.claude/`
+# (settings, sandbox, hooks, agents, skills; Claude Code's sandbox denies the loop writes
+# there anyway, ADR 0007), CI, the guard and the driver, and the pre-registration file.
 GUARDRAIL_PATHS = (
     ".gitignore",
     "pyproject.toml",
     "Makefile",
     ".github/CODEOWNERS",
-    ".claude/settings.json",
-    ".claude/sandbox.autopilot.json",
-    ".claude/hooks/",
-    ".claude/agents/",
-    ".claude/skills/autopilot/",
-    ".claude/skills/phase-start/",
-    ".claude/skills/phase-review/",
-    ".claude/skills/determinism-contract/",
-    ".claude/skills/fieldtest-security/",
+    ".claude/",
     "config/preregistration.json",
     ".github/workflows/",
     ".github/dependabot.yml",

@@ -495,9 +495,26 @@ and nowhere else (template: `.env.example`; `chmod 600 .env`).
 issue, then close it. The driver waits up to `FIELDTEST_AUTOPILOT_WAIT_HOURS` (default 24)
 and then resumes on its own.
 
-**Before Phase 0B: a separate macOS user for the loop** (ADR 0006). Run the driver as a
-user that holds only its own clone of this repository, its `.env` and its own `gh` and
-Claude logins. The sandbox already denies the loop your files and writes to anything that
-runs outside it, but your own commands still use the same `.venv`, git hooks and caches as
-the loop. A separate user removes that shared ground before the Mistral key arrives. With API billing, `FIELDTEST_AUTOPILOT_BUDGET_USD`
-caps each iteration's spend.
+**Before the driver runs: a separate macOS user for the loop** (ADRs 0006, 0007). The
+driver, the hooks and the Claude process run outside the sandbox, so code the loop writes
+can reach whatever the driver's user can read, through a route the write denials don't
+list. Run as you, that is your `gh` login (admin on the repository), your SSH keys and
+your keychain. Run as its own user, it is only the loop's `.env`: an App installed on this
+one repository, with no Administration and no Workflows permission, and later a Mistral key you can
+revoke.
+
+1. **Create the user.** System Settings → Users & Groups → Add User: a Standard account
+   (e.g. `fieldtest-loop`). Log in to it through the login window, not `su`, so its own
+   keychain unlocks for the Claude login.
+2. **Install its tools** (step 1): uv and Claude Code in its own `~/.local/bin`; gh and
+   gitleaks from your Homebrew are readable to it. Sign Claude Code in. **Don't sign gh
+   in:** the driver acts only as the App, through its own gh config.
+3. **Clone and configure.** Clone the repository over HTTPS into its home, run `uv sync`
+   and `uv run pre-commit install`, and set `git config user.email` to the `bot_email`
+   in `.github/loop-identity.json`. Create its `.env` from `.env.example` with the App's
+   three values (steps 3 and 4).
+4. **Run the driver there** (`caffeinate -i scripts/autopilot.sh`, so the Mac stays awake
+   while it waits). Work on the repository from your own clone; never run your commands in
+   the loop's.
+
+With API billing, `FIELDTEST_AUTOPILOT_BUDGET_USD` caps each iteration's spend.

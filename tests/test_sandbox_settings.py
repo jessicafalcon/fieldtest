@@ -4,7 +4,9 @@ secrets, and the driver always passes it (ADR 0005)."""
 from __future__ import annotations
 
 import json
+import subprocess
 import tomllib
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,19 @@ def test_secrets_and_your_own_credentials_are_unreadable() -> None:
         assert not any(c in allowed for c in ("/.config/gh", ".ssh", "Keychains", ".aws"))
 
 
+def test_every_tracked_file_is_readable_inside_the_sandbox() -> None:
+    """`make check` reads every tracked file, so one under a read denial fails it (EPERM)."""
+    fs = settings()["sandbox"]["filesystem"]
+    repo_denials = [d for d in fs["denyRead"] if d.startswith("{ROOT}/")]
+    listed = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    for rel in listed:
+        path = "{ROOT}/" + rel
+        denied = any(fnmatch(path, d) or path.startswith(d + "/") for d in repo_denials)
+        assert not denied or path in fs["allowRead"], rel
+
+
 def test_rendering_denies_writes_to_everything_that_runs_outside_the_sandbox(
     tmp_path: Path,
 ) -> None:
@@ -70,7 +85,7 @@ def test_rendering_denies_writes_to_everything_that_runs_outside_the_sandbox(
         assert str(root / rel.rstrip("/")) in deny_write, rel
     assert {"~/.cache/uv", "~/.cache/pre-commit"} <= set(deny_write)
     edits = rendered["permissions"]["deny"]
-    assert f"Edit(/{root}/.claude/hooks/**)" in edits
+    assert f"Edit(/{root}/.claude/**)" in edits
     assert f"Edit(/{root}/scripts/guard.py)" in edits
     assert f"Edit(/{root}/.venv/**)" in edits or f"Edit(/{root}/.venv)" in edits
     assert {"WebFetch", "WebSearch"} <= set(edits)

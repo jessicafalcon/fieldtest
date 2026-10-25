@@ -75,6 +75,11 @@ def test_checks_and_reads_are_allowed_for_reviewers(command: str) -> None:
         "git show HEAD:.env",
         "git log -p -- .private/notes.md",
         "git grep --open-files-in-pager=sh TODO",
+        "git grep --open=sh TODO",
+        "git grep --open-files-in=true -l TODO",
+        "git grep -lOtrue TODO",
+        "git grep -iOsh TODO",
+        "git diff --no-ind ../other/.env /dev/null",
     ],
 )
 def test_everything_else_is_blocked_for_reviewers(command: str) -> None:

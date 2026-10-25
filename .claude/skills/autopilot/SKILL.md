@@ -132,6 +132,11 @@ Spawn `merge-gate` with the PR number. It verifies, merges, and returns **MERGED
   `PushNotification` if available, and print `AUTOPILOT-RESULT: awaiting-approval #<n>`.
   The driver waits for the approval, then the next iteration resumes here. Never approve,
   and never ask for an approval anywhere but the review request.
+- ESCALATE `human-action (owner merges)`: the PR changes `.github/workflows/`, which the
+  App can't merge (ADR 0007). Post the merge gate's report as a PR comment, then escalate
+  with the exact command for the owner:
+  `gh pr merge <n> --squash --delete-branch --match-head-commit <verified head>`, and
+  "close this issue once it's merged". The next iteration starts from the merged `main`.
 - ESCALATE, any other type: escalate with its reason.
 
 ## Retry budget

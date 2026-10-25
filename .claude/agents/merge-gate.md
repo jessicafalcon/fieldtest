@@ -55,7 +55,11 @@ output: it filters out every comment not written by the loop's App or the repo o
    - Dependabot PR: a major version bump of a runtime dependency → **ESCALATE** (`decision`).
 4. **Scope.** The title is one change, and the diff (`gh pr diff <n>`) matches it. A
    second, unrelated change → **REFUSED** ("split it").
-5. **Merge.** Only if 1–4 all pass:
+5. **Merge.** Only if 1–4 all pass. If `gh pr diff <n> --name-only` lists any file under
+   `.github/workflows/`, don't merge: return **ESCALATE** (`human-action`), "the owner
+   merges this PR at the verified head". The App has no Workflows permission, so GitHub
+   refuses its merge of a workflow change, and that refusal is what keeps a loop PR from
+   rewriting the CI that judges it (ADR 0007). Otherwise:
    `gh pr merge <n> --squash --delete-branch --match-head-commit <the head SHA from step 2>`.
    If GitHub refuses (the head moved, checks re-running), return **REFUSED** with its
    message. Never retry with different flags.
@@ -63,7 +67,8 @@ output: it filters out every comment not written by the loop's App or the repo o
 ## Report
 
 First line: `**Merge gate:** MERGED <squash SHA>` | `**Merge gate:** REFUSED` |
-`**Merge gate:** ESCALATE <type>`, then `Verified head: <SHA>`.
+`**Merge gate:** ESCALATE <type>`, then `Verified head: <SHA>`. A verified workflow PR
+reads `**Merge gate:** ESCALATE human-action (owner merges)`.
 
 Then: the guard result (pass, or its findings), one line per review (agent, verdict, all
 blockers/majors accounted for: yes/no), and for REFUSED or ESCALATE the exact list of

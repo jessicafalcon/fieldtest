@@ -101,9 +101,22 @@ WRITING_SHORT_FLAGS = ("-o", "-c", "-O")
 
 
 def _writes(word: str) -> bool:
+    """True when `word` is, abbreviates or bundles a flag that writes or runs a program.
+
+    git and argparse accept any unambiguous prefix of a long option and bundle short ones,
+    so `--open=sh` and `-lOsh` both mean `--open-files-in-pager=sh`. Fails closed: a bundle
+    with any of the letters is refused, even when the letter is a value.
+
+    >>> [_writes(w) for w in ("--open=sh", "-lOsh", "--no-ind", "--stat", "-l", "--")]
+    [True, True, True, False, False, False]
+    """
+    if word == "--" or not word.startswith("-"):
+        return False
     if word.startswith("--"):
-        return word.partition("=")[0] in WRITING_FLAGS
-    return word in WRITING_FLAGS or word.startswith(WRITING_SHORT_FLAGS)
+        name = word.partition("=")[0]
+        return any(flag.startswith(name) for flag in WRITING_FLAGS if flag.startswith("--"))
+    letters = {flag[1] for flag in WRITING_SHORT_FLAGS}
+    return word in WRITING_FLAGS or any(letter in letters for letter in word[1:])
 
 
 def allowed_for_agent(command: str, role: str) -> bool:

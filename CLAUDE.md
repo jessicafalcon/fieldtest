@@ -130,7 +130,7 @@ until the issue is closed, then resumes. Only for:
 
 | Type | When |
 |---|---|
-| `human-action` | An account, credential, console setting, payment or phone check (the brief's "Manual step (human)") |
+| `human-action` | An account, credential, console setting, payment or phone check (the brief's "Manual step (human)"); merging a PR that changes `.github/workflows/`, after `merge-gate` verified it (ADR 0007) |
 | `decision` | The arbiter's policy reserves it: a phase goal or acceptance criterion, the §3 principles or §4 contract, money, a licence, a split one-way door; a major runtime dependency bump |
 | `guardrail` | The work needs a guardrail changed: the issue carries the patch for the owner to apply |
 | `security` | A secret or private content in a pushed commit, or a security-reviewer blocker the branch can't fix |
@@ -145,15 +145,13 @@ requests the owner's review (below).
 ## Guardrails: files whose change needs the owner's approval
 
 <!-- guarded:start -->
-- **What constrains the loop:** `.gitignore`, `pyproject.toml`, `Makefile`,
-  `.claude/settings.json`, `.claude/sandbox.autopilot.json`, `.claude/hooks/`,
+- **What constrains the loop and defines its authority:** all of `.claude/` (settings,
+  sandbox, hooks, every agent and every skill; Claude Code's sandbox denies the loop writes
+  there anyway, ADR 0007), `.gitignore`, `pyproject.toml`, `Makefile`,
   `.github/CODEOWNERS`, `.github/workflows/`, `.github/dependabot.yml`,
   `.github/loop-identity.json`, `.pre-commit-config.yaml`, `scripts/guard.py`,
   `scripts/guard_rules.py`, `scripts/autopilot.sh`, `scripts/loop_auth.py`,
   `scripts/preflight.py`, `scripts/render_sandbox.py`, `scripts/setup_github.sh`.
-- **What defines its authority:** every agent in `.claude/agents/`, and the skills
-  `autopilot`, `phase-start`, `phase-review`, `determinism-contract` and
-  `fieldtest-security`.
 - **What defines success:** `config/preregistration.json`; once it's frozen, the paths it
   lists; and any text between `guarded` markers in the brief or this file (principles,
   contract, outcome taxonomy, recommendation rule, acceptance criteria, escalation policy).
@@ -205,6 +203,10 @@ Claude Code's OS-enforced sandbox (`.claude/sandbox.autopilot.json`, ADR 0005):
   only on requests to `api.mistral.ai`.
 - **No escape:** no unsandboxed retry, no start without the sandbox, and no WebFetch or
   WebSearch.
+- **Its own macOS user:** the driver, hooks and Claude process run outside the sandbox, so
+  the driver runs as a user that holds only the loop's clone and `.env`, never as the owner
+  (brief §12, ADR 0007). The write denials narrow what runs outside; the user bounds what
+  a route they miss can reach.
 
 A host or path the work needs that isn't allowed is a guardrail change: a `guardrail` issue
 with the patch, for the owner to apply.
