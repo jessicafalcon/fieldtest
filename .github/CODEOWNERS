@@ -1,0 +1,21 @@
+# The owner reviews every change to what constrains the loop, defines its authority, or
+# defines success (ADRs 0001, 0004, 0006). The `main` ruleset requires a code owner's
+# approval, so GitHub enforces it: the loop's App authors its PRs and can never approve them.
+# Keep in sync with GUARDRAIL_PATHS in scripts/guard_rules.py (tests/test_codeowners.py).
+/.gitignore @jessicafalcon
+/pyproject.toml @jessicafalcon
+/Makefile @jessicafalcon
+/.github/CODEOWNERS @jessicafalcon
+/.claude/ @jessicafalcon
+/config/preregistration.json @jessicafalcon
+/.github/workflows/ @jessicafalcon
+/.github/dependabot.yml @jessicafalcon
+/.github/loop-identity.json @jessicafalcon
+/.pre-commit-config.yaml @jessicafalcon
+/scripts/guard.py @jessicafalcon
+/scripts/guard_rules.py @jessicafalcon
+/scripts/autopilot.sh @jessicafalcon
+/scripts/loop_auth.py @jessicafalcon
+/scripts/preflight.py @jessicafalcon
+/scripts/render_sandbox.py @jessicafalcon
+/scripts/setup_github.sh @jessicafalcon

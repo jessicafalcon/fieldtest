@@ -1,0 +1,112 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # The owner's review on a guardrail PR re-runs the `security` job, whose guard checks
+  # that the approval is on the head commit (ADR 0003).
+  pull_request_review:
+    types: [submitted, dismissed]
+
+# Read-only token and no secrets: an accidental live model call fails for lack of a key,
+# and pytest blocks sockets on top of that. Fork PRs run with the same empty context.
+permissions:
+  contents: read
+
+# A review event must not cancel the push event's run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  # Required by the `main` ruleset (scripts/setup_github.sh). Keep the job names in sync
+  # with REQUIRED_CHECKS in scripts/guard.py.
+  # Never skip a required job with `if:`: GitHub counts a skipped job as passing, so a
+  # skipped run on a review event would mask a failed one on the same commit.
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the uv version pinned by `required-version` in pyproject.toml.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', '.python-version') }}
+
+      # Fails on a stale uv.lock, so the uv-lock hook is skipped below.
+      - run: uv sync --locked
+
+      # The staged-only hooks have nothing to scan here; the `security` job covers them.
+      - run: uv run --frozen pre-commit run --all-files --show-diff-on-failure
+        env:
+          SKIP: uv-lock,gitleaks-system,guard-staged,pytest
+      - run: uv run --frozen pytest
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # the PR's reviews, for the guardrail approval
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history for gitleaks and the per-commit guard
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Install gitleaks
+        env:
+          # Keep in sync with the gitleaks rev in .pre-commit-config.yaml.
+          VERSION: 8.30.1
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfL --retry 3 --connect-timeout 10 --max-time 120 -o "$RUNNER_TEMP/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Scan the full history for secrets
+        run: gitleaks git --redact --verbose .
+
+      # Judge the PR with main's guard, so a PR that weakens the guard is judged by the
+      # rules it would replace. The first PR, before main has a guard, uses its own.
+      - name: Guard the PR's commits and rules
+        if: github.event_name != 'push'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FIELDTEST_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          FIELDTEST_OWNER: ${{ github.repository_owner }}
+          FIELDTEST_PR_REVIEWS: ${{ runner.temp }}/reviews.json
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" > "$FIELDTEST_PR_REVIEWS"
+          guard=scripts/guard.py
+          if git cat-file -e "$BASE_SHA:scripts/guard.py" 2>/dev/null; then
+            mkdir -p "$RUNNER_TEMP/base-guard"
+            for f in guard.py guard_rules.py; do
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/base-guard/$f"
+            done
+            guard="$RUNNER_TEMP/base-guard/guard.py"
+          fi
+          python3 "$guard" --range "$BASE_SHA..$HEAD_SHA"
+
+      # Runs even when the guard fails: a guardrail PR's guard step stays red until the
+      # owner approves, and its dependencies still need auditing meanwhile.
+      - name: Audit the locked dependencies for known vulnerabilities
+        if: ${{ !cancelled() }}
+        run: |
+          uv export --frozen --all-groups --no-emit-project --format requirements.txt \
+            > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.10.1 --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"

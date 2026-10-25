@@ -1,0 +1,109 @@
+# Runs before each commit, on each commit message, and before each push; CI runs the
+# pre-commit stage over every file. Local tools run from the project venv
+# (`uv run --frozen`), so their versions come from uv.lock. A guardrail file: changing it
+# needs the owner's approving review (CLAUDE.md, Guardrails).
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        # --enforce-all so CI checks every tracked file, not only newly staged ones.
+        args: ["--maxkb=1000", "--enforce-all"]
+      - id: check-merge-conflict
+        args: ["--assume-in-merge"]
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+      # The fixers also declare the pre-push stage, where they open every pushed file for
+      # writing; the loop's sandbox denies writes to `.claude/skills/` and `.claude/hooks/`,
+      # so they run on commit only. CI still runs them over every file.
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: trailing-whitespace
+        stages: [pre-commit]
+
+  # Keep in sync with `required-version` in pyproject.toml.
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.5
+    hooks:
+      - id: uv-lock
+
+  # The system binary (README, Setup). Scans staged changes; CI scans the full history.
+  # Keep the rev in sync with the gitleaks version in .github/workflows/ci.yml.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks-system
+        pass_filenames: false
+
+  # Static analysis of the workflows: script injection, unpinned actions, credentials
+  # persisted on checkout, over-broad permissions. Keep in sync with the Makefile.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      - id: zizmor
+        args: ["--offline"]
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen mypy
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: uv run --frozen pytest -q
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: records
+        name: records agree with the repo
+        entry: uv run --frozen python scripts/check_records.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      # Same rules as the Claude Code PostToolUse hook.
+      - id: determinism-guard
+        name: determinism guard
+        entry: uv run --frozen python .claude/hooks/determinism_guard.py
+        language: system
+        files: ^src/fieldtest/.*\.py$
+      # The public-repo guard (SECURITY.md): private paths, secrets, personal data and
+      # private terms in what is staged, in the message, and in every commit pushed.
+      - id: guard-staged
+        name: guard (staged changes)
+        entry: python3 scripts/guard.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: guard-commit-msg
+        name: guard (commit message)
+        entry: python3 scripts/guard.py --commit-msg
+        language: system
+        stages: [commit-msg]
+      - id: guard-push
+        name: guard (commits being pushed)
+        entry: python3 scripts/guard.py --push
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

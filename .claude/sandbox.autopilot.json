@@ -1,0 +1,59 @@
+{
+  "_comment": "The loop's sandbox (ADRs 0005, 0006). scripts/render_sandbox.py replaces {ROOT} with the repo's absolute path, adds write and edit denials for every guardrail path, and scripts/autopilot.sh passes the result with --settings: a repository's own settings can't enable masking, TLS termination or the strict allowlist. A guardrail file: a new host or path needs the owner's approval.",
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": true,
+    "filesystem": {
+      "denyRead": [
+        "~/",
+        "{ROOT}/.env",
+        "{ROOT}/.env.*",
+        "{ROOT}/.private"
+      ],
+      "allowRead": [
+        "{ROOT}",
+        "{ROOT}/.env.example",
+        "~/.local/bin",
+        "~/.local/share/uv",
+        "~/.cache/pre-commit",
+        "~/.gitconfig",
+        "~/.config/git",
+        "~/.config/uv"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "tlsTerminate": {},
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "codeload.github.com",
+        "objects.githubusercontent.com",
+        "results-receiver.actions.githubusercontent.com",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "api.mistral.ai",
+        "docs.mistral.ai",
+        "mistral.ai",
+        "www.boamp.fr",
+        "boamp-datadila.opendatasoft.com",
+        "www.data.gouv.fr"
+      ]
+    },
+    "credentials": {
+      "envVars": [
+        { "name": "MISTRAL_API_KEY", "mode": "mask", "injectHosts": ["api.mistral.ai"] },
+        { "name": "FIELDTEST_APP_ID", "mode": "deny" },
+        { "name": "FIELDTEST_APP_INSTALLATION_ID", "mode": "deny" },
+        { "name": "FIELDTEST_APP_PRIVATE_KEY", "mode": "deny" },
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "GITHUB_TOKEN", "mode": "deny" }
+      ]
+    }
+  },
+  "permissions": {
+    "deny": ["WebFetch", "WebSearch"]
+  }
+}
